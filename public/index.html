@@ -373,6 +373,39 @@ async function fetchLogs(updateCpu = false) {
       document.getElementById("progressText").textContent = "0%";
       alert("You have been logged out successfully!");
     });
+
+    // Use Cloudinary API to fetch thumbnail and and extra meta data
+    async function fetchExternalVideoInfo(filename) {
+  try {
+    const resp = await fetch('/upload-external', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + jwtToken 
+      },
+      body: JSON.stringify({ filename })
+    });
+
+    const json = await resp.json();
+    if (!resp.ok) throw new Error(json.error || 'Failed');
+
+    const statusEl = document.getElementById('status');
+    statusEl.innerHTML += `
+      <h4>External Info (Cloudinary)</h4>
+      <p>Video URL: <a href="${json.url}" target="_blank">Watch</a></p>
+      <p>Thumbnail:</p>
+      <img src="${json.thumbnail}" style="max-width:200px;" />
+      <ul>
+        <li>Duration: ${json.metadata.duration} sec</li>
+        <li>Resolution: ${json.metadata.width}x${json.metadata.height}</li>
+        <li>Format: ${json.metadata.format}</li>
+      </ul>
+    `;
+  } catch (err) {
+    console.error(err);
+  }
+}
+
   </script>
 </body>
 </html>

@@ -287,6 +287,38 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
   });
 });
 
+// Extension API cloudinary
+app.post('/upload-external', authenticateToken, async (req, res) => {
+  const filename = req.body.filename; // Name of the converted video
+  const filePath = path.join(__dirname, 'uploads', filename);
+
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  try {
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(filePath, { resource_type: 'video' });
+
+    // Return URL, thumbnail, and metadata
+    res.json({
+      success: true,
+      url: result.secure_url,
+      thumbnail: result.thumbnail_url || result.secure_url + '?frame=0',
+      metadata: {
+        duration: result.duration,
+        format: result.format,
+        width: result.width,
+        height: result.height
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Cloudinary upload failed' });
+  }
+});
+
 
 // health
 app.get('/health', (req, res) => res.send('ok'));
