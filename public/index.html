@@ -42,6 +42,10 @@
     <div id="status" class="result"></div>
   </div>
 
+  <!-- UPLOAD TO CLOUDINARY -->
+  <button id="uploadCloudBtn" style="display:none; margin-top:10px;">Upload to Cloud</button>
+
+
   <!-- ADMIN BUTTON -->
   <button id="adminBtn">Admin Panel</button>
 
@@ -222,14 +226,14 @@
                         <li>Bitrate: ${json.metadata.bitrate}</li>
                     </ul>
                 `;
+                const cloudBtn = document.getElementById('uploadCloudBtn');
+                cloudBtn.style.display = 'block';
+                cloudBtn.dataset.filename = json.outputFile.split('/').pop();
             } else {
                 let errMsg = 'Upload failed';
                 try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
                 statusEl.innerHTML = `<p style="color:red; font-weight:bold;">Error: ${errMsg}</p>`;
             }
-            // Call Cloudinary upload
-            const convertedFileName = json.outputFile.split('/').pop(); // just the file name
-            fetchExternalVideoInfo(convertedFileName); 
         };
 
 
@@ -409,6 +413,17 @@ async function fetchLogs(updateCpu = false) {
         console.error(err);
       }
     }
+
+    // UPLOADING TO CLOUDINARY BUTTON
+    document.getElementById('uploadCloudBtn').addEventListener('click', () => {
+        const cloudBtn = document.getElementById('uploadCloudBtn');
+        const filename = cloudBtn.dataset.filename;
+        cloudBtn.disabled = true; // prevent double-click
+        cloudBtn.textContent = 'Uploading...';
+        fetchExternalVideoInfo(filename).finally(() => {
+            cloudBtn.style.display = 'none'; // hide after upload
+        });
+    });
 
   </script>
 </body>
