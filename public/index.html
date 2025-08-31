@@ -427,14 +427,14 @@ async function fetchLogs(updateCpu = false) {
         statusEl.innerHTML += `
           <h4>External Info (Cloudinary)</h4>
           <p>Video URL: <a href="${json.url}" target="_blank">Watch</a></p>
-          <p>Thumbnail:</p>
-          <img src="${json.thumbnail}" style="max-width:200px;" />
-          <ul>
-            <li>Duration: ${json.metadata.duration} sec</li>
-            <li>Resolution: ${json.metadata.width}x${json.metadata.height}</li>
-            <li>Format: ${json.metadata.format}</li>
+          <ul style="list-style:none; padding-left:0;">
+            <li><strong>Format:</strong> ${format}</li>
+            <li><strong>Aspect Ratio:</strong> ${aspect_ratio}</li>
+            <li><strong>Frame Rate:</strong> ${frame_rate} fps</li>
+            <li><strong>File Size:</strong> ${(bytes / (1024 * 1024)).toFixed(2)} MB</li>
           </ul>
         `;
+
       } catch (err) {
         console.error(err);
       }
