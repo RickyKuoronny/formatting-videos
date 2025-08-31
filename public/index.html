@@ -202,7 +202,7 @@
                 }
             }
         };
-        
+
         // Handle response
         xhr.onload = () => {
             // Re-enable inputs
@@ -415,6 +415,7 @@ async function fetchLogs(updateCpu = false) {
           },
           body: JSON.stringify({ filename })
         });
+        console.log('Fetch status:', resp.status); 
 
         const json = await resp.json();
         if (!resp.ok) throw new Error(json.error || 'Failed');
@@ -437,17 +438,24 @@ async function fetchLogs(updateCpu = false) {
     }
 
     // UPLOADING TO CLOUDINARY BUTTON
-    document.getElementById('uploadCloudBtn').addEventListener('click', () => {
-        console.log('HIT cloud butoon');
-        const cloudBtn = document.getElementById('uploadCloudBtn');
-        const filename = cloudBtn.dataset.filename;
-        cloudBtn.disabled = true; // prevent double-click
-        cloudBtn.textContent = 'Uploading...';
-        fetchExternalVideoInfo(filename)
-          .finally(() => {
-            cloudBtn.textContent = 'Uploaded';
-          });
+    document.body.addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'uploadCloudBtn') {
+            console.log('HIT cloud button');
+            const filename = e.target.dataset.filename;
+            e.target.disabled = true;
+            e.target.textContent = 'Uploading...';
+
+            fetchExternalVideoInfo(filename)
+                .then(() => { e.target.textContent = 'Uploaded!'; })
+                .catch((err) => {
+                    console.error(err);
+                    e.target.disabled = false;
+                    e.target.textContent = 'Upload to Cloud';
+                    alert('Upload failed, try again.');
+                });
+        }
     });
+
 
   </script>
 </body>
