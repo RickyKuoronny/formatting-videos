@@ -115,7 +115,8 @@
     const uploader = document.getElementById("uploader");
     const adminBtn = document.getElementById("adminBtn");
     const adminPanel = document.getElementById("adminPanel");
-
+    const cloudBtn = document.getElementById('uploadCloudBtn');
+    
     // LOGIN
     document.getElementById('loginBtn').addEventListener('click', async () => {
       const username = document.getElementById('username').value;
@@ -147,6 +148,7 @@
 
     // UPLOAD HANDLER
     document.getElementById('uploadBtn').addEventListener('click', () => {
+        cloudBtn.style.display = "none";
         if (!jwtToken) {
             alert('Please login first');
             return;
@@ -228,7 +230,6 @@
                 `;
 
                 // Show Cloudinary upload button and set filename
-                const cloudBtn = document.getElementById('uploadCloudBtn');
                 cloudBtn.style.display = 'block';
                 cloudBtn.dataset.filename = json.outputFile.split('/').pop();
                 cloudBtn.disabled = false;
