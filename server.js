@@ -313,8 +313,8 @@ app.post('/upload-external', authenticateToken, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Cloudinary upload failed:', err);
-    res.status(500).json({ error: 'Cloudinary upload failed' });
+  console.error('Cloudinary error:', err.response ? err.response.body : err);
+  res.status(500).json({ error: 'Cloudinary upload failed', details: err.message });
   }
 });
 
