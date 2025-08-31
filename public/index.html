@@ -421,9 +421,10 @@ async function fetchLogs(updateCpu = false) {
         const filename = cloudBtn.dataset.filename;
         cloudBtn.disabled = true; // prevent double-click
         cloudBtn.textContent = 'Uploading...';
-        fetchExternalVideoInfo(filename).finally(() => {
-            cloudBtn.style.display = 'none'; // hide after upload
-        });
+        fetchExternalVideoInfo(filename)
+          .finally(() => {
+            cloudBtn.textContent = 'Uploaded';
+          });
     });
 
   </script>
