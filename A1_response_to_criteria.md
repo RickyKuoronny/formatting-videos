@@ -1,14 +1,28 @@
-# Assignment 1 - REST API Project - Response to Criteria
+Assignment 1 - REST API Project - Response to Criteria
+================================================
 
-## Overview
+Instructions:
+
+- Don't use this file. Use the clean template from Canvas
+- This file is a sample showing the kinds and amount of detail that we
+    would like to see
+- Video timestamp refers to the time in your video where the functionality 
+    is demonstrated. The user login and user dependent functionality
+    will likely contribute to demonstrating the web client.
+- Relevant files are filename and line number(s) where the functionality is implemented.
+    You can also refer to an entire directory or leave off the line number if 
+    the whole directory/file is relevant.
+
+Overview
 ------------------------------------------------
 
 - **Name:** Ricky Kuoronny
 - **Student number:** n10666630
-- **Application name:** Video Resizer / Processor  
-- **Two line description:** A web platform where users can upload videos, resize, and convert them to different formats. Users can also retrieve processed videos via a REST API.  
+- **Application name:** Video Resizer / Processor
+- **Two line description:** A web platform where users can upload videos, resize, and convert them to different formats.  
+Users can also retrieve processed videos via a REST API.
 
-## Core criteria
+Core criteria
 ------------------------------------------------
 
 ### Containerise the app
@@ -82,7 +96,7 @@
   - server.js 
   - public/index.html 
 
-## Additional criteria
+Additional criteria
 ------------------------------------------------
 
 ### Extensive REST API features
