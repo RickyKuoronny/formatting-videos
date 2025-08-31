@@ -428,10 +428,9 @@ async function fetchLogs(updateCpu = false) {
           <h4>External Info (Cloudinary)</h4>
           <p>Video URL: <a href="${json.url}" target="_blank">Watch</a></p>
           <ul style="list-style:none; padding-left:0;">
-            <li><strong>Format:</strong> ${format}</li>
-            <li><strong>Aspect Ratio:</strong> ${aspect_ratio}</li>
-            <li><strong>Frame Rate:</strong> ${frame_rate} fps</li>
-            <li><strong>File Size:</strong> ${(bytes / (1024 * 1024)).toFixed(2)} MB</li>
+            <li><strong>Format:</strong> ${json.metadata.format}</li>
+            <li><strong>Duration:</strong> ${json.metadata.duration} sec</li>
+            <li><strong>Resolution:</strong> ${json.metadata.width}x${json.metadata.height}</li>
           </ul>
         `;
 
