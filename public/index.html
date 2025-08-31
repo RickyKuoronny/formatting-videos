@@ -221,14 +221,12 @@
                     <p style="font-weight:bold; color:green;">
                         Converted! <a href="${json.download}" target="_blank" style="color:blue;">Download here</a>
                     </p>
-                    <ul style="padding-left: 20px; margin-top: 5px;">
-                        <li>Duration: ${json.metadata.duration} sec</li>
-                        <li>Codec: ${json.metadata.codec}</li>
-                        <li>Resolution: ${json.metadata.width}x${json.metadata.height}</li>
-                        <li>Bitrate: ${json.metadata.bitrate}</li>
+                    <ul style="list-style:none; padding-left:0;">
+                        <li><strong> Duration:</strong>${json.metadata.duration} sec</li>
+                        <li><strong>Codec:</strong>${json.metadata.codec}</li>
+                        <li><strong>Bitrate:</strong>${json.metadata.bitrate}</li>
                     </ul>
                 `;
-
                 // Show Cloudinary upload button and set filename
                 cloudBtn.style.display = 'block';
                 cloudBtn.dataset.filename = json.outputFile.split('/').pop();
@@ -426,7 +424,6 @@ async function fetchLogs(updateCpu = false) {
         const statusEl = document.getElementById('status');
         statusEl.innerHTML += `
           <h4>External Info (Cloudinary)</h4>
-          <p>Video URL: <a href="${json.url}" target="_blank">Watch</a></p>
           <ul style="list-style:none; padding-left:0;">
             <li><strong>Format:</strong> ${json.metadata.format}</li>
             <li><strong>Duration:</strong> ${json.metadata.duration} sec</li>

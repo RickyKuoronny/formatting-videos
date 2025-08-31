@@ -259,8 +259,6 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
           filename: outName,
           duration: metaRaw.format.duration,
           codec: metaRaw.streams[0].codec_name,
-          width: metaRaw.streams[0].width,
-          height: metaRaw.streams[0].height,
           bitrate: metaRaw.format.bit_rate
         };
 
