@@ -226,9 +226,31 @@
                         <li>Bitrate: ${json.metadata.bitrate}</li>
                     </ul>
                 `;
+
                 const cloudBtn = document.getElementById('uploadCloudBtn');
                 cloudBtn.style.display = 'block';
                 cloudBtn.dataset.filename = json.outputFile.split('/').pop();
+
+                // Remove previous listeners to avoid duplicates
+                cloudBtn.replaceWith(cloudBtn.cloneNode(true));
+                const newCloudBtn = document.getElementById('uploadCloudBtn');
+
+                // Attach listener now
+                newCloudBtn.addEventListener('click', () => {
+                    console.log('HIT cloud button');
+                    const filename = newCloudBtn.dataset.filename;
+                    newCloudBtn.disabled = true;
+                    newCloudBtn.textContent = 'Uploading...';
+
+                    fetchExternalVideoInfo(filename)
+                        .then(() => { newCloudBtn.textContent = 'Uploaded!'; })
+                        .catch(err => {
+                            console.error(err);
+                            newCloudBtn.disabled = false;
+                            newCloudBtn.textContent = 'Upload to Cloud';
+                            alert('Upload failed, try again.');
+                        });
+                });
             } else {
                 let errMsg = 'Upload failed';
                 try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
