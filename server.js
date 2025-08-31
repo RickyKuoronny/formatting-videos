@@ -257,7 +257,6 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
         const metaRaw = JSON.parse(stdout);
         const metadata = {
           filename: outName,
-          duration: metaRaw.format.duration,
           codec: metaRaw.streams[0].codec_name,
           bitrate: metaRaw.format.bit_rate
         };
