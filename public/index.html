@@ -227,6 +227,8 @@
                 try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
                 statusEl.innerHTML = `<p style="color:red; font-weight:bold;">Error: ${errMsg}</p>`;
             }
+            // Call Cloudinary upload
+            fetchExternalVideoInfo(convertedFileName);
         };
 
 
