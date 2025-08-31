@@ -437,26 +437,6 @@ async function fetchLogs(updateCpu = false) {
       }
     }
 
-    // UPLOADING TO CLOUDINARY BUTTON
-    document.body.addEventListener('click', (e) => {
-        if (e.target && e.target.id === 'uploadCloudBtn') {
-            console.log('HIT cloud button');
-            const filename = e.target.dataset.filename;
-            e.target.disabled = true;
-            e.target.textContent = 'Uploading...';
-
-            fetchExternalVideoInfo(filename)
-                .then(() => { e.target.textContent = 'Uploaded!'; })
-                .catch((err) => {
-                    console.error(err);
-                    e.target.disabled = false;
-                    e.target.textContent = 'Upload to Cloud';
-                    alert('Upload failed, try again.');
-                });
-        }
-    });
-
-
   </script>
 </body>
 </html>
