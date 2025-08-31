@@ -416,6 +416,7 @@ async function fetchLogs(updateCpu = false) {
 
     // UPLOADING TO CLOUDINARY BUTTON
     document.getElementById('uploadCloudBtn').addEventListener('click', () => {
+        console.log('HIT cloud butoon');
         const cloudBtn = document.getElementById('uploadCloudBtn');
         const filename = cloudBtn.dataset.filename;
         cloudBtn.disabled = true; // prevent double-click
