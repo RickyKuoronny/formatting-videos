@@ -290,19 +290,17 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
 
 // Extension API cloudinary
 app.post('/upload-external', authenticateToken, async (req, res) => {
-  const filename = req.body.filename; // Name of the converted video
-  const filePath = path.join(__dirname, 'uploads', filename);
+  const filename = req.body.filename;
+  const filePath = path.join(OUTPUT_DIR, filename); // ✅ Fixed
 
-  // Check if file exists
   if (!fs.existsSync(filePath)) {
+    console.error(`File not found at: ${filePath}`);
     return res.status(404).json({ error: 'File not found' });
   }
 
   try {
-    // Upload to Cloudinary
     const result = await cloudinary.uploader.upload(filePath, { resource_type: 'video' });
 
-    // Return URL, thumbnail, and metadata
     res.json({
       success: true,
       url: result.secure_url,
@@ -315,11 +313,10 @@ app.post('/upload-external', authenticateToken, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error(err);
+    console.error('Cloudinary upload failed:', err);
     res.status(500).json({ error: 'Cloudinary upload failed' });
   }
 });
-
 
 // health
 app.get('/health', (req, res) => res.send('ok'));
