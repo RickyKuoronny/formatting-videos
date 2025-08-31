@@ -276,6 +276,7 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
         res.json({
           ok: true,
           download: `/outputs/${outName}`,
+          outputFile: outName,
           metadata
         });
       });
