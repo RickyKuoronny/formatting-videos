@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Video Resizer Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* Reset & Base Styles */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      background: #f8f9fb;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+      color: #2c3e50;
+      text-align: center;
+      font-size: 2rem;
+    }
+
+    /* Containers */
+    #loginForm, #uploader, #adminPanel {
+      width: 100%;
+      max-width: 600px;
+      background: white;
+      padding: 20px;
+      margin: 15px auto;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    /* Labels & Inputs */
+    label {
+      font-weight: 600;
+      display: block;
+      margin: 10px 0 5px;
+    }
+
+    input, select {
+      padding: 10px;
+      width: 100%;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+
+    /* Buttons */
+    button {
+      background: #3498db;
+      color: white;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      transition: background 0.3s ease, transform 0.1s ease;
+    }
+
+    button:hover {
+      background: #2980b9;
+    }
+
+    button:disabled {
+      background: #95a5a6;
+      cursor: not-allowed;
+    }
+
+    /* Logout Button */
+    #logoutBtn {
+      position: fixed;
+      top: 15px;
+      right: 15px;
+      background-color: #e74c3c;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: bold;
+      display: none;
+      z-index: 999;
+    }
+
+    /* Progress Bar */
+    #uploadProgress {
+      width: 100%;
+      height: 18px;
+      margin-top: 10px;
+    }
+
+    #progressText {
+      display: block;
+      text-align: right;
+      font-size: 13px;
+      color: #555;
+      margin-top: 4px;
+    }
+
+    /* Admin Button */
+    #adminBtn {
+      display: none;
+      margin-top: 20px;
+      background: #27ae60;
+      padding: 12px 20px;
+      font-weight: bold;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 600px;
+    }
+
+    /* Admin Panel */
+    #adminPanel {
+      display: none;
+    }
+
+    /* Logs Table */
+    #logsTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 12px; 
+    table-layout: fixed; /* fixed layout for equal-width columns */
+    }
+
+    #logsTable th, #logsTable td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid #e1e1e1;
+    word-break: break-word; /* wrap long content */
+    }
+
+    #logsTable th {
+    background: #3498db;
+    color: white;
+    font-weight: bold;
+    }
+    tr:nth-child(even) {
+      background: #f2f2f2;
+    }
+
+    tr:hover {
+      background: #ecf0f1;
+    }
+
+    /* Make logs scrollable */
+    #logsTableContainer {
+    max-height: 300px;
+    overflow-y: auto;
+    overflow-x: hidden; /* prevent horizontal scroll */
+    margin-top: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    }
+
+    /* Chart */
+    #cpuChart {
+      margin-top: 10px;
+      background: #fff;
+      padding: 10px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      body {
+        padding: 10px;
+      }
+      h1 {
+        font-size: 1.5rem;
+      }
+      button {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Video Resizer</h1>
+
+  <!-- LOGOUT -->
+  <button id="logoutBtn">Logout</button>
+
+  <!-- LOGIN -->
+  <div id="loginForm">
+    <h2>Login</h2>
+    <label>Username</label>
+    <input id="username" type="text" placeholder="Enter username" />
+    <label>Password</label>
+    <input id="password" type="password" placeholder="Enter password" />
+    <button id="loginBtn">Login</button>
+  </div>
+
+  <!-- UPLOADER (Hidden Initially) -->
+  <div id="uploader" style="display:none;">
+    <h2>Upload Video</h2>
+    <label>Video file</label>
+    <input id="video" type="file" accept="video/*" />
+    <label>Resolution</label>
+    <select id="resolution">
+      <option value="">-- Select Resolution --</option>
+      <option value="640x360">360p</option>
+      <option value="1280x720">720p</option>
+      <option value="1920x1080">1080p</option>
+    </select>
+    <button id="uploadBtn">Upload & Convert</button>
+    <progress id="uploadProgress" value="0" max="100"></progress>
+    <span id="progressText">0%</span>
+    <div id="status" class="result"></div>
+  </div>
+
+  <!-- ADMIN BUTTON -->
+  <button id="adminBtn">Admin Panel</button>
+
+  <!-- ADMIN PANEL -->
+  <div id="adminPanel">
+    <h2>Admin Panel</h2>
+    <h3>CPU Usage (Live)</h3>
+    <canvas id="cpuChart"></canvas>
+    <h3>Conversion Logs</h3>
+
+<!-- Filters, Sort, Pagination Controls -->
+<div id="filters" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px;">
+  <label>Sort By:</label>
+  <select id="sortSelect" style="flex:1; min-width:120px; font-size:12px;">
+    <option value="startedAt:desc">Newest First</option>
+    <option value="startedAt:asc">Oldest First</option>
+    <option value="resolution:asc">Resolution ↑</option>
+    <option value="resolution:desc">Resolution ↓</option>
+  </select>
+
+  <label>Filter by User:</label>
+  <input id="userFilter" type="text" placeholder="User" style="flex:1; min-width:100px; font-size:12px;" />
+
+
+  <label>Filter by Resolution:</label>
+  <select id="resFilter" style="flex:1; min-width:100px; font-size:12px;">
+    <option value="">All</option>
+    <option value="640x360">360p</option>
+    <option value="1280x720">720p</option>
+    <option value="1920x1080">1080p</option>
+  </select>
+
+   <button id="applyFiltersBtn" style="flex:0 0 auto; font-size:12px;">Apply</button>
+</div>
+
+<div id="paginationControls" style="margin-top: 10px;">
+  <button id="prevPageBtn">Previous</button>
+  <span id="currentPage"></span>
+  <button id="nextPageBtn">Next</button>
+</div>
+
+<!-- Existing logs table -->
+<div id="logsTableContainer">
+  <table id="logsTable">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Input</th>
+        <th>Output</th>
+        <th>Resolution</th>
+        <th>Started At</th>
+        <th>Completed At</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+  <script>
+    let jwtToken = null;
+    let cpuChart = null;
+    const cpuData = { labels: [], datasets: [{ label: 'CPU Load', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.3 }] };
+    let cpuInterval = null;
+
+    const logoutBtn = document.getElementById("logoutBtn");
+    const loginForm = document.getElementById("loginForm");
+    const uploader = document.getElementById("uploader");
+    const adminBtn = document.getElementById("adminBtn");
+    const adminPanel = document.getElementById("adminPanel");
+
+    // LOGIN
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      if (!username || !password) { alert('Enter username and password'); return; }
+
+      try {
+        const resp = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.error || 'Login failed');
+
+        jwtToken = json.token;
+        alert('Login successful!');
+
+        loginForm.style.display = "none";
+        uploader.style.display = "block";
+        logoutBtn.style.display = "inline-block";
+
+        const payload = JSON.parse(atob(jwtToken.split('.')[1]));
+        if (payload.role === 'admin') {
+          adminBtn.style.display = 'block';
+        }
+      } catch (err) { alert('Login error: ' + (err.message || err)); }
+    });
+
+    // UPLOAD HANDLER
+    document.getElementById('uploadBtn').addEventListener('click', () => {
+        if (!jwtToken) {
+            alert('Please login first');
+            return;
+        }
+
+        const fileEl = document.getElementById('video');
+        const resolution = document.getElementById('resolution').value;
+
+        // Validate input
+        if (!fileEl.files.length) {
+            alert('Choose a video');
+            return;
+        }
+
+        if (!resolution) {
+            alert('Select resolution');
+            return;
+        }
+
+        // Disable inputs while uploading
+        fileEl.disabled = true;
+        document.getElementById('resolution').disabled = true;
+        document.getElementById('uploadBtn').disabled = true;
+
+        // Prepare FormData
+        const fd = new FormData();
+        fd.append('video', fileEl.files[0]);
+        fd.append('resolution', resolution);
+
+        const statusEl = document.getElementById('status');
+        const progressBar = document.getElementById('uploadProgress');
+        const progressText = document.getElementById('progressText');
+
+        // Reset progress
+        progressBar.value = 0;
+        progressText.textContent = '0%';
+        statusEl.textContent = 'Uploading...';
+
+        // Use XMLHttpRequest for upload tracking
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/convert', true);
+        xhr.setRequestHeader('Authorization', 'Bearer ' + jwtToken);
+
+        // Track upload progress
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percent = Math.round((event.loaded / event.total) * 100);
+                progressBar.value = percent;
+                progressText.textContent = percent + '%';
+
+                if (percent === 100) {
+                    statusEl.textContent = 'Converting... Please wait';
+                }
+            }
+        };
+
+        // Handle response
+        xhr.onload = () => {
+            // Re-enable inputs
+            fileEl.disabled = false;
+            document.getElementById('resolution').disabled = false;
+            document.getElementById('uploadBtn').disabled = false;
+
+            const statusEl = document.getElementById('status');
+
+            if (xhr.status === 200) {
+                const json = JSON.parse(xhr.responseText);
+
+                statusEl.innerHTML = `
+                    <p style="font-weight:bold; color:green;">
+                        Converted! <a href="${json.download}" target="_blank" style="color:blue;">Download here</a>
+                    </p>
+                    <ul style="padding-left: 20px; margin-top: 5px;">
+                        <li>Duration: ${json.metadata.duration} sec</li>
+                        <li>Codec: ${json.metadata.codec}</li>
+                        <li>Resolution: ${json.metadata.width}x${json.metadata.height}</li>
+                        <li>Bitrate: ${json.metadata.bitrate}</li>
+                    </ul>
+                `;
+            } else {
+                let errMsg = 'Upload failed';
+                try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
+                statusEl.innerHTML = `<p style="color:red; font-weight:bold;">Error: ${errMsg}</p>`;
+            }
+        };
+
+
+        // Handle network errors
+        xhr.onerror = () => {
+            fileEl.disabled = false;
+            document.getElementById('resolution').disabled = false;
+            document.getElementById('uploadBtn').disabled = false;
+            statusEl.textContent = 'Error: Upload failed';
+        };
+
+        // Send request
+        xhr.send(fd);
+    });
+
+    // ADMIN BUTTON TOGGLE
+    adminBtn.addEventListener('click', async () => {
+        if (adminPanel.style.display === 'block') {
+            // Hide panel
+            adminPanel.style.display = 'none';
+            // Optional: stop interval
+            if (cpuInterval) {
+                clearInterval(cpuInterval);
+                cpuInterval = null;
+            }
+        } else {
+            // Show panel
+            adminPanel.style.display = 'block';
+            await fetchLogs(true); // initial logs + CPU
+            if (!cpuChart) initCpuChart();
+            if (!cpuInterval) cpuInterval = setInterval(updateCpuChart, 5000);
+        }
+    });
+
+    let currentPage = 1;
+    let limit = 10;
+
+    // FETCH LOGS
+async function fetchLogs(updateCpu = false) {
+  try {
+    const sort = document.getElementById("sortSelect").value;
+    const user = document.getElementById("userFilter").value;
+    const resolution = document.getElementById("resFilter").value;
+
+    const resp = await fetch(`/logs?page=${currentPage}&limit=${limit}&sort=${sort}&user=${user}&resolution=${resolution}`, {
+      headers: { 'Authorization': 'Bearer ' + jwtToken }
+    });
+
+    const json = await resp.json();
+    if (!resp.ok) throw new Error(json.error || 'Failed to fetch logs');
+
+    // --- Render Logs Table ---
+    const tbody = document.querySelector('#logsTable tbody');
+    tbody.innerHTML = '';
+    json.logs.forEach(log => { // <-- use json.logs instead of json.data
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${log.user}</td>
+        <td>${log.input}</td>
+        <td>${log.output}</td>
+        <td>${log.resolution}</td>
+        <td>${new Date(log.startedAt).toLocaleString()}</td>
+        <td>${new Date(log.completedAt).toLocaleString()}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // --- Update Pagination ---
+    updatePagination(json.pagination);
+
+    // --- Update CPU chart ---
+    if (updateCpu && json.cpu && json.cpu.cpuUsagePercent) {
+        cpuData.datasets[0].data = json.cpu.cpuUsagePercent;
+        cpuData.labels = [new Date().toLocaleTimeString()];
+        if (cpuChart) cpuChart.update();
+    }
+
+  } catch (err) {
+    console.error('Error fetching logs:', err);
+  }
+}
+
+
+    function updatePagination(pagination) {
+        const pageInfo = document.getElementById("currentPage");
+        pageInfo.textContent = `Page ${pagination.page} of ${pagination.totalPages}`;
+        document.getElementById("prevPageBtn").disabled = pagination.page === 1;
+        document.getElementById("nextPageBtn").disabled = pagination.page === pagination.totalPages;
+    }
+
+    document.getElementById("prevPageBtn").addEventListener("click", () => {
+        currentPage--;
+        fetchLogs(false);
+    });
+    document.getElementById("nextPageBtn").addEventListener("click", () => {
+        currentPage++;
+        fetchLogs(false);
+    });
+    document.getElementById("applyFiltersBtn").addEventListener("click", () => {
+        currentPage = 1;
+        fetchLogs(false);
+    });
+
+
+
+    // CPU CHART INIT
+    function initCpuChart() {
+      const ctx = document.getElementById('cpuChart').getContext('2d');
+      cpuChart = new Chart(ctx, { type: 'line', data: cpuData, options: { responsive:true, animation:false, scales:{ y:{ min:0 } } } });
+    }
+
+    async function updateCpuChart() {
+    try {
+        const resp = await fetch('/logs', { headers: { 'Authorization': 'Bearer ' + jwtToken } });
+        const json = await resp.json();
+        if (!json.cpu || !json.cpu.cpuUsagePercent) return;
+
+        const now = new Date().toLocaleTimeString();
+        cpuData.labels.push(now);
+        cpuData.datasets[0].data.push(json.cpu.cpuUsagePercent[0]); // <- fixed
+
+        if (cpuData.labels.length > 20) {
+        cpuData.labels.shift();
+        cpuData.datasets[0].data.shift();
+        }
+        cpuChart.update();
+    } catch(err) {
+        console.error('CPU chart update error:', err);
+    }
+    }
+
+
+    // LOGOUT
+    logoutBtn.addEventListener("click", () => {
+      jwtToken = null;
+      uploader.style.display = "none";
+      adminBtn.style.display = "none";
+      adminPanel.style.display = "none";
+      loginForm.style.display = "block";
+      logoutBtn.style.display = "none";
+      document.getElementById("video").value = "";
+      document.getElementById("resolution").value = "";
+      document.getElementById("uploadProgress").value = 0;
+      document.getElementById("progressText").textContent = "0%";
+      alert("You have been logged out successfully!");
+    });
+  </script>
+</body>
+</html>
