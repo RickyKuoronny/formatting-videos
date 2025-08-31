@@ -231,6 +231,8 @@
                 const cloudBtn = document.getElementById('uploadCloudBtn');
                 cloudBtn.style.display = 'block';
                 cloudBtn.dataset.filename = json.outputFile.split('/').pop();
+                cloudBtn.disabled = false;
+                cloudBtn.textContent = 'Upload to Cloud';
 
                 // Attach click handler safely
                 cloudBtn.onclick = async () => {
