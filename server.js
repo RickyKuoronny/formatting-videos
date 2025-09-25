@@ -303,15 +303,10 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
 // Extension API cloudinary
 app.post('/upload-external', authenticateToken, async (req, res) => {
   const filename = req.body.filename;
-  const filePath = path.join(OUTPUT_DIR, filename);
-
-  if (!fs.existsSync(filePath)) {
-    console.error(`File not found at: ${filePath}`);
-    return res.status(404).json({ error: 'File not found' });
-  }
 
   try {
-    const result = await cloudinary.uploader.upload(filePath, { resource_type: 'video' });
+    const presignedUrl = await getPresignedUrl(filename, 60); 
+    const result = await cloudinary.uploader.upload(presignedUrl, { resource_type: 'video' });
 
     res.json({
       success: true,
