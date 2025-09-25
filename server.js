@@ -38,6 +38,7 @@ const METADATA_FILE = 'metadata.json';
 const LOG_FILE = path.join(__dirname, 'conversion_logs.json');
 const UPLOAD_DIR = path.resolve(__dirname, 'uploads');
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
+const mime = require('mime-types');
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
