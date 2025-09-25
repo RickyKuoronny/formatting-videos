@@ -10,7 +10,7 @@ const bcrypt = require('bcrypt');
 const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
-const { uploadFile, getPresignedUrl } = require('backend/s3');
+const { uploadFile, getPresignedUrl } = require('./backend/s3');
 
 const app = express();
 
