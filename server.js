@@ -10,6 +10,7 @@ const bcrypt = require('bcrypt');
 const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
+const { uploadFile, getPresignedUrl } = require('./s3');
 
 const app = express();
 
@@ -248,7 +249,7 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
 
       // --- Generate metadata using ffprobe ---
       const ffprobeCmd = `ffprobe -v quiet -print_format json -show_format -show_streams "${outputPath}"`;
-      exec(ffprobeCmd, (err, stdout) => {
+      exec(ffprobeCmd, async (err, stdout) => {
         if (err) {
           console.error('Failed to generate metadata:', err);
           return res.json({ ok: true, download: `/outputs/${outName}` });
@@ -268,14 +269,27 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
         }
         allMeta.push(metadata);
         fs.writeFileSync(METADATA_FILE, JSON.stringify(allMeta, null, 2));
+        
+        // --- Upload to S3 ---
+        try {
+          const contentType = mime.lookup(outputPath) || 'video/mp4';
+          await uploadFile(outName, outputPath, contentType);
+          const presignedUrl = await getPresignedUrl(outName);
 
-        // --- Respond with download link + metadata ---
-        res.json({
-          ok: true,
-          download: `/outputs/${outName}`,
-          outputFile: outName,
-          metadata
-        });
+          // Optionally remove local output file after upload
+          fs.unlinkSync(outputPath);
+
+          // --- Respond with pre-signed URL + metadata ---
+          res.json({
+            ok: true,
+            s3Url: presignedUrl,
+            outputFile: outName,
+            metadata
+          });
+        } catch (uploadErr) {
+          console.error('S3 upload failed:', uploadErr);
+          res.status(500).json({ error: 'S3 upload failed', details: uploadErr.message });
+        }
       });
 
     } else {
