@@ -11,6 +11,7 @@ const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
+const { saveMetadata } = require('./backend/dynamo');
 
 const app = express();
 
@@ -263,19 +264,14 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
           bitrate: metaRaw.format.bit_rate
         };
 
-        // --- Append to metadata.json ---
-        let allMeta = [];
-        if (fs.existsSync(METADATA_FILE)) {
-          allMeta = JSON.parse(fs.readFileSync(METADATA_FILE, 'utf8'));
-        }
-        allMeta.push(metadata);
-        fs.writeFileSync(METADATA_FILE, JSON.stringify(allMeta, null, 2));
-        
         // --- Upload to S3 ---
         try {
           const contentType = mime.lookup(outputPath) || 'video/mp4';
           await uploadFile(outName, outputPath, contentType);
           const presignedUrl = await getPresignedUrl(outName);
+
+          // Save metadata in DynamoDB
+          await saveMetadata(outName, metadata);
 
           // Optionally remove local output file after upload
           fs.unlinkSync(outputPath);
