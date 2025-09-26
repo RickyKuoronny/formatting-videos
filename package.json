@@ -1,16 +1,20 @@
 {
   "name": "ffmpeg-resizer",
-  "version": "1.0.0",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description":" An Express server that resizes images and videos using ffmpeg and uploads them to Cloudinary.",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
   },
+  "keywords": ["express", "ffmpeg", "cloudinary", "image resizing", "video resizing"],
+  "author": "Ricky and Shangzhe",
+  "license": "MIT",
   "dependencies": {
-    "bcrypt": "^6.0.0",
     "cloudinary": "^2.7.0",
     "dotenv": "^17.2.1",
     "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "@aws-sdk/client-cognito-identity-provider": "^3.637.0",
+    "aws-jwt-verify": "^4.0.1"
   }
 }

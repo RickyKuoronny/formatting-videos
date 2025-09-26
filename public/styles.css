@@ -27,7 +27,7 @@
     }
 
     /* Containers */
-    #loginForm, #uploader, #adminPanel {
+    #loginForm, #signupForm, #confirmForm, #uploader, #adminPanel {
       width: 100%;
       max-width: 600px;
       background: white;
@@ -36,6 +36,34 @@
       border-radius: 12px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
       transition: all 0.3s ease;
+    }
+
+    .auth-links {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    .linklike {
+      background: none;
+      color: #3498db;
+      padding: 0;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      text-decoration: underline;
+    }
+
+    .linklike:hover {
+      color: #1f6fa5;
+      background: none;
+      transform: none;
+    }
+
+    .cloudinary-info {
+      margin-top: 12px;
     }
 
     /* Labels & Inputs */

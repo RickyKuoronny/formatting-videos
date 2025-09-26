@@ -5,11 +5,19 @@ const multer = require('multer');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
 const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
+
+// AWS Cognito
+const {
+  CognitoIdentityProviderClient,
+  SignUpCommand,
+  ConfirmSignUpCommand,
+  InitiateAuthCommand,
+  AuthFlowType
+} = require('@aws-sdk/client-cognito-identity-provider');
+const { CognitoJwtVerifier } = require('aws-jwt-verify');
 
 const app = express();
 
@@ -22,7 +30,63 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
+const REGION = process.env.REGION || 'ap-southeast-2';
+const COGNITO_USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
+const COGNITO_CLIENT_ID = process.env.COGNITO_CLIENT_ID;
+const COGNITO_CLIENT_SECRET = process.env.COGNITO_CLIENT_SECRET;
+
+const missingEnv = ['COGNITO_USER_POOL_ID', 'COGNITO_CLIENT_ID']
+  .filter((key) => !process.env[key]);
+
+if (missingEnv.length) {
+  console.error(`Missing required Cognito configuration: ${missingEnv.join(', ')}`);
+  process.exit(1);
+}
+
+const cognitoClient = new CognitoIdentityProviderClient({ region: REGION });
+
+const USER_PASSWORD_AUTH_FLOW =
+  AuthFlowType && typeof AuthFlowType === 'object' && AuthFlowType.USER_PASSWORD_AUTH
+    ? AuthFlowType.USER_PASSWORD_AUTH
+    : 'USER_PASSWORD_AUTH';
+
+const accessTokenVerifier = CognitoJwtVerifier.create({
+  userPoolId: COGNITO_USER_POOL_ID,
+  tokenUse: 'access',
+  clientId: COGNITO_CLIENT_ID,
+});
+
+const idTokenVerifier = CognitoJwtVerifier.create({
+  userPoolId: COGNITO_USER_POOL_ID,
+  tokenUse: 'id',
+  clientId: COGNITO_CLIENT_ID,
+});
+
+function buildSecretHash(username) {
+  if (!COGNITO_CLIENT_SECRET) return undefined;
+  return crypto
+    .createHmac('sha256', COGNITO_CLIENT_SECRET)
+    .update(`${username}${COGNITO_CLIENT_ID}`)
+    .digest('base64');
+}
+
+function mapCognitoError(error) {
+  const statusMap = {
+    UsernameExistsException: 409,
+    InvalidPasswordException: 400,
+    CodeMismatchException: 400,
+    ExpiredCodeException: 400,
+    UserNotFoundException: 404,
+    NotAuthorizedException: 401,
+    UserNotConfirmedException: 403,
+    TooManyRequestsException: 429,
+  };
+
+  return {
+    status: statusMap[error.name] || 500,
+    message: error.message || 'An unexpected error occurred with Cognito.',
+  };
+}
 
 app.use(express.json()); // for parsing JSON bodies
 
@@ -41,29 +105,66 @@ const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-// --- Hard-coded users ---
-const users = [
-  { username: 'user1', passwordHash: bcrypt.hashSync('pass', 10), role: 'user' },
-  { username: 'admin', passwordHash: bcrypt.hashSync('adminpass', 10), role: 'admin' }
-];
+async function verifyJwt(token) {
+  try {
+    const payload = await accessTokenVerifier.verify(token);
+    return { payload, tokenType: 'access' };
+  } catch (accessErr) {
+    const payload = await idTokenVerifier.verify(token);
+    return { payload, tokenType: 'id' };
+  }
+}
 
-// --- JWT middleware ---
 function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.sendStatus(401);
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : undefined;
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
-  });
+  if (!token) {
+    return res.status(401).json({ error: 'Missing Authorization header' });
+  }
+
+  verifyJwt(token)
+    .then(({ payload, tokenType }) => {
+      const username =
+        payload['cognito:username'] ||
+        payload.username ||
+        payload.preferred_username ||
+        payload.email ||
+        'unknown';
+
+      const rawGroups = payload['cognito:groups'];
+      const groups = Array.isArray(rawGroups)
+        ? rawGroups
+        : rawGroups
+        ? [rawGroups]
+        : [];
+      const role = payload['custom:role'] || (groups.includes('admin') ? 'admin' : 'user');
+
+      req.user = {
+        username,
+        email: payload.email,
+        tokenType,
+        tokenPayload: payload,
+        groups,
+        role,
+        isAdmin: groups.includes('admin') || role === 'admin',
+      };
+      next();
+    })
+    .catch((err) => {
+      console.error('Token verification failed', err);
+      res.status(401).json({ error: 'Invalid or expired token' });
+    });
 }
 
 // Middleware to check admin role
 function requireAdmin(req, res, next) {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden: Admins only' });
-  next();
+  if (req.user?.isAdmin) {
+    return next();
+  }
+  return res.status(403).json({ error: 'Forbidden: Admins only' });
 }
 
 
@@ -152,25 +253,6 @@ app.get('/logs', authenticateToken, requireAdmin, (req, res) => {
   }
 });
 
-
-// --- Login route ---
-app.post('/login', (req, res) => {
-  const { username, password } = req.body;
-  const user = users.find(u => u.username === username);
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
-  if (!bcrypt.compareSync(password, user.passwordHash)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-
-  const payload = { username: user.username, role: user.role };
-  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
-
-  res.json({ token });
-});
-
-
-
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
@@ -188,6 +270,120 @@ const upload = multer({
     else cb(new Error('Only video files allowed'), false);
   }
 });
+
+
+// --- Signing up user route ---
+app.post('/auth/signup', async (req, res) => {
+  const { username, password, email } = req.body || {};
+
+  if (!username || !password || !email) {
+    return res.status(400).json({ error: 'username, password and email are required' });
+  }
+
+  const commandInput = {
+    ClientId: COGNITO_CLIENT_ID,
+    Username: username,
+    Password: password,
+    UserAttributes: [{ Name: 'email', Value: email }],
+  };
+
+  const secretHash = buildSecretHash(username);
+  if (secretHash) {
+    commandInput.SecretHash = secretHash;
+  }
+
+  try {
+    const result = await cognitoClient.send(new SignUpCommand(commandInput));
+    res.status(201).json({
+      message: 'Sign-up successful. Please check your email for the confirmation code.',
+      userSub: result.UserSub,
+      userConfirmed: result.UserConfirmed,
+    });
+  } catch (error) {
+    console.error('Sign-up failed:', error);
+    const { status, message } = mapCognitoError(error);
+    res.status(status).json({ error: message, code: error.name });
+  }
+});
+
+// --- Confirming user route ---
+app.post('/auth/confirm', async (req, res) => {
+  const { username, confirmationCode } = req.body || {};
+
+  if (!username || !confirmationCode) {
+    return res.status(400).json({ error: 'username and confirmationCode are required' });
+  }
+
+  const commandInput = {
+    ClientId: COGNITO_CLIENT_ID,
+    Username: username,
+    ConfirmationCode: confirmationCode,
+  };
+
+  const secretHash = buildSecretHash(username);
+  if (secretHash) {
+    commandInput.SecretHash = secretHash;
+  }
+
+  try {
+    await cognitoClient.send(new ConfirmSignUpCommand(commandInput));
+    res.json({ message: 'User confirmed successfully.' });
+  } catch (error) {
+    console.error('Confirmation failed:', error);
+    const { status, message } = mapCognitoError(error);
+    res.status(status).json({ error: message, code: error.name });
+  }
+});
+
+// --- Authenticating user route ---
+async function handleAuthLogin(req, res) {
+  const { username, password } = req.body || {};
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'username and password are required' });
+  }
+
+  const authParameters = {
+    USERNAME: username,
+    PASSWORD: password,
+  };
+
+  const secretHash = buildSecretHash(username);
+  if (secretHash) {
+    authParameters.SECRET_HASH = secretHash;
+  }
+
+  const commandInput = {
+    AuthFlow: USER_PASSWORD_AUTH_FLOW,
+    AuthParameters: authParameters,
+    ClientId: COGNITO_CLIENT_ID,
+  };
+
+  try {
+    const result = await cognitoClient.send(new InitiateAuthCommand(commandInput));
+    const authResult = result.AuthenticationResult || {};
+
+    res.json({
+      message: 'Authentication successful.',
+      tokens: {
+        accessToken: authResult.AccessToken,
+        idToken: authResult.IdToken,
+        refreshToken: authResult.RefreshToken,
+        tokenType: authResult.TokenType,
+        expiresIn: authResult.ExpiresIn,
+      },
+      challengeName: result.ChallengeName,
+    });
+  } catch (error) {
+    console.error('Authentication failed:', error);
+    const { status, message } = mapCognitoError(error);
+    res.status(status).json({ error: message, code: error.name });
+  }
+}
+
+app.post('/auth/login', handleAuthLogin);
+app.post('/login', handleAuthLogin);
+
 
 app.use('/outputs', express.static(OUTPUT_DIR, { index: false }));
 
@@ -239,7 +435,7 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
       resolution,
       startedAt,
       completedAt,
-      user: req.user.username
+      user: (req.user && req.user.username) || 'unknown'
     };
     appendLog(logEntry); // write to log file
 
