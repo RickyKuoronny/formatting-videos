@@ -199,13 +199,13 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     ff.stderr.on('data', d => ffErr += d.toString());
 
     // Pipe uploaded file buffer into FFmpeg stdin
-    ff.stdin.write(req.file.buffer);
-    ff.stdin.end();
+    ff.stdin.end(req.file.buffer);
 
     // Stream FFmpeg stdout directly to S3 using uploadFile helper
     const passThrough = new PassThrough();
     const uploadPromise = uploadFile(outName, passThrough, 'video/mp4');
     ff.stdout.pipe(passThrough);
+    await uploadPromise;
 
     ff.on('close', async code => {
       const completedAt = new Date().toISOString();
