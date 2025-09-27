@@ -226,8 +226,20 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
   // Handle FFmpeg close
   ff.on('close', async code => {
+    const completedAt = new Date().toISOString();
+    const logEntry = {
+      input: req.file.originalname,
+      output: outName,
+      resolution,
+      startedAt,
+      completedAt,
+      user: req.user.username
+    };
+
+    await saveLog(logEntry);
+    
     if (code !== 0) {
-      console.error(`[${new Date().toISOString()}] FFmpeg failed for ${outName}:`, ffErr);
+      console.error(`[${completedAt}] FFmpeg failed for ${outName}:`, ffErr);
       return res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
     }
 
