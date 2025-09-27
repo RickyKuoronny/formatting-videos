@@ -226,38 +226,46 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
   // Handle FFmpeg close
   ff.on('close', async code => {
-    const completedAt = new Date().toISOString();
-
-    // Save conversion log
-    const logEntry = {
-      input: req.file.originalname,
-      output: outName,
-      resolution,
-      startedAt,
-      completedAt,
-      user: req.user.username
-    };
-    await saveLog(logEntry);
-
     if (code !== 0) {
-      console.error(`[${completedAt}] FFmpeg failed for ${outName}:`, ffErr);
+      console.error(`[${new Date().toISOString()}] FFmpeg failed for ${outName}:`, ffErr);
       return res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
     }
 
-    // Wait for S3 upload
+    // Wait for S3 upload to finish
     await uploadPromise;
 
     const presignedUrl = await getPresignedUrl(outName);
 
-    // Save minimal metadata
-    const metadata = { filename: outName };
-    await saveMetadata(outName, metadata);
+    // --- Generate metadata using ffprobe directly on S3 ---
+    const ffprobeArgs = [
+      '-v', 'quiet',
+      '-print_format', 'json',
+      '-show_format',
+      '-show_streams',
+      presignedUrl
+    ];
 
-    res.json({
-      ok: true,
-      s3Url: presignedUrl,
-      outputFile: outName,
-      metadata
+    execFile('ffprobe', ffprobeArgs, (err, stdout) => {
+      if (err) {
+        console.error('Failed to generate metadata:', err);
+        return res.json({ ok: true, s3Url: presignedUrl, outputFile: outName });
+      }
+
+      const metaRaw = JSON.parse(stdout);
+      const metadata = {
+        filename: outName,
+        codec: metaRaw.streams[0]?.codec_name || null,
+        bitrate: metaRaw.format?.bit_rate || null
+      };
+
+      saveMetadata(outName, metadata).catch(console.error);
+
+      res.json({
+        ok: true,
+        s3Url: presignedUrl,
+        outputFile: outName,
+        metadata
+      });
     });
   });
 
