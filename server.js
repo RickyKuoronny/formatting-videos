@@ -37,7 +37,6 @@ cloudinary.config({
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 const mime = require('mime-types');
 const { PassThrough } = require('stream');
-const { spawn } = require('child_process');
 
 // --- Hard-coded users ---
 const users = [
