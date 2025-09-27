@@ -5,6 +5,7 @@ const {
   CreateTableCommand, 
   waitUntilTableExists 
 } = require("@aws-sdk/client-dynamodb");
+const { unmarshall } = require('@aws-sdk/util-dynamodb');
 const { DynamoDBDocumentClient, PutCommand } = require("@aws-sdk/lib-dynamodb");
 
 const ddbClient = new DynamoDBClient({ region: 'ap-southeast-2' });
