@@ -11,7 +11,7 @@ const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
 const mime = require('mime-types');
-const { Readable, PassThrough } = require('stream');
+const { Readable, PassThrough, pipeline } = require('stream');
 
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
 const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
