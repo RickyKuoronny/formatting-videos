@@ -186,12 +186,12 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
   const startedAt = new Date().toISOString();
   console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
-
+  
   // FFmpeg args
   const args = ['-i', 'pipe:0', '-hide_banner', '-loglevel', 'error'];
   if (scaleArg) args.push('-vf', scaleArg);
   args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-f', 'mp4', 'pipe:1');
-
+  console.log('FFmpeg args:', args.join(' '));
   const ff = spawn('ffmpeg', args);
 
   let ffErr = '';
