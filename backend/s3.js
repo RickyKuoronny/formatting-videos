@@ -56,21 +56,32 @@ async function ensureBucket() {
     bucketEnsured = true;
 }
 
-// Upload a local file to S3
-async function uploadFile(key, filePath, contentType) {
-    await ensureBucket(); // Make sure bucket exists
-    const fileStream = fs.createReadStream(filePath);
+// Upload a file or stream to S3
+async function uploadFile(key, input, contentType) {
+    await ensureBucket(); // make sure bucket exists
+
+    let body;
+    if (typeof input === 'string') {
+        // input is a file path
+        body = fs.createReadStream(input);
+    } else if (input.readable) {
+        // input is already a readable stream
+        body = input;
+    } else {
+        throw new Error('Invalid input: must be file path or readable stream');
+    }
 
     await s3Client.send(new PutObjectCommand({
         Bucket: bucketName,
         Key: key,
-        Body: fileStream,
+        Body: body,
         ContentType: contentType
     }));
 
     console.log(`File uploaded to S3: ${key}`);
     return key;
 }
+
 
 // Get a pre-signed URL for a file in S3
 async function getPresignedUrl(key, expiresIn = 3600) {
