@@ -34,10 +34,10 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const UPLOAD_DIR = path.resolve(__dirname, 'uploads');
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 const mime = require('mime-types');
 const { PassThrough } = require('stream');
+const { spawn } = require('child_process');
 
 // --- Hard-coded users ---
 const users = [
@@ -182,12 +182,12 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
   const resolution = (req.body.resolution || '').trim();
   const scaleArg = buildScaleArg(resolution);
-
   const outName = path.basename(req.file.originalname, path.extname(req.file.originalname)) + '-converted.mp4';
   const startedAt = new Date().toISOString();
+
   console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
 
-  // Build FFmpeg args for piping
+  // FFmpeg args for streaming
   const args = ['-i', 'pipe:0', '-hide_banner', '-loglevel', 'error'];
   if (scaleArg) args.push('-vf', scaleArg);
   args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-f', 'mp4', 'pipe:1');
@@ -195,16 +195,22 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
   const ff = spawn('ffmpeg', args);
 
   let ffErr = '';
-  ff.stderr.on('data', (d) => { ffErr += d.toString(); });
+  ff.stderr.on('data', d => { ffErr += d.toString(); });
 
-  // Pipe input buffer into FFmpeg
+  ff.on('error', err => {
+    console.error('FFmpeg spawn error:', err);
+    res.status(500).json({ error: 'FFmpeg failed to start', details: err.message });
+  });
+
+  // Pipe input buffer to FFmpeg
   ff.stdin.write(req.file.buffer);
   ff.stdin.end();
 
-  // Pipe FFmpeg stdout directly to S3
+  // Pipe FFmpeg stdout to S3
   const passThrough = new PassThrough();
-  const uploadPromise = uploadFile(outName, passThrough, 'video/mp4'); // make sure your uploadFile can accept streams
   ff.stdout.pipe(passThrough);
+
+  const uploadPromise = uploadFile(outName, passThrough, 'video/mp4'); // make sure this supports streams
 
   ff.on('close', async (code) => {
     const completedAt = new Date().toISOString();
@@ -216,18 +222,18 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
       completedAt,
       user: req.user.username
     };
-    await saveLog(logEntry); // DynamoDB
+
+    await saveLog(logEntry);
 
     if (code !== 0) {
       console.error(`[${completedAt}] FFmpeg failed for ${outName}:`, ffErr);
-      return res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
+      return res.status(500).json({ error: 'FFmpeg conversion failed', details: ffErr });
     }
 
     try {
       await uploadPromise;
       const presignedUrl = await getPresignedUrl(outName);
 
-      // Generate metadata (optional, also from a stream using ffprobe if needed)
       const metadata = { filename: outName }; // minimal metadata
 
       await saveMetadata(outName, metadata);
