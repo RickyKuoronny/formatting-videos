@@ -11,7 +11,7 @@ const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
-const { saveMetadata } = require('./backend/dynamo');
+const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
 
 const app = express();
 
@@ -34,15 +34,9 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-
-const METADATA_FILE = 'metadata.json';
-const LOG_FILE = path.join(__dirname, 'conversion_logs.json');
 const UPLOAD_DIR = path.resolve(__dirname, 'uploads');
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 const mime = require('mime-types');
-
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 // --- Hard-coded users ---
 const users = [
@@ -70,20 +64,9 @@ function requireAdmin(req, res, next) {
 }
 
 
-// --- Logs ---
-// Utility to append log
-function appendLog(entry) {
-  const logEntry = JSON.stringify(entry) + '\n'; // one JSON object per line
-  fs.appendFile(LOG_FILE, logEntry, (err) => {
-    if (err) console.error('Failed to write log:', err);
-  });
-}
-
-
 // GET /logs - only admin
-app.get('/logs', authenticateToken, requireAdmin, (req, res) => {
+app.get('/logs', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    // Extract query parameters with defaults
     const {
       page = 1,
       limit = 10,
@@ -92,69 +75,60 @@ app.get('/logs', authenticateToken, requireAdmin, (req, res) => {
       resolution
     } = req.query;
 
-    // Read logs from file
-    fs.readFile(LOG_FILE, 'utf8', (err, data) => {
-      if (err) return res.status(500).json({ error: 'Failed to read logs' });
+    // --- Fetch logs from DynamoDB ---
+    let logs = await getLogs();
 
-      // Parse logs from JSON lines
-      let logs = data.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+    // Apply filtering
+    if (user) {
+      logs = logs.filter(log => log.user && log.user.toLowerCase() === user.toLowerCase());
+    }
+    if (resolution) {
+      logs = logs.filter(log => log.resolution === resolution);
+    }
 
-      // Apply filtering
-      if (user) {
-        logs = logs.filter(log => log.user && log.user.toLowerCase() === user.toLowerCase());
+    // Apply sorting
+    const [sortField, sortOrder] = sort.split(':');
+    logs.sort((a, b) => {
+      if (a[sortField] < b[sortField]) return sortOrder === "asc" ? -1 : 1;
+      if (a[sortField] > b[sortField]) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    // Pagination
+    const total = logs.length;
+    const startIndex = (page - 1) * limit;
+    const paginatedLogs = logs.slice(startIndex, startIndex + parseInt(limit));
+
+    // CPU stats
+    const cores = os.cpus().length;
+    const loadAvg = os.loadavg();
+    const cpuUsagePercent = loadAvg.map(avg => Math.min((avg / cores) * 100, 100));
+    const cpuInfo = os.cpus().map(cpu => ({
+      model: cpu.model,
+      speed: cpu.speed,
+      times: cpu.times
+    }));
+
+    res.json({
+      success: true,
+      cpu: {
+        cores,
+        cpuUsagePercent,
+        cpuInfo
+      },
+      logs: paginatedLogs,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / limit)
       }
-      if (resolution) {
-        logs = logs.filter(log => log.resolution === resolution);
-      }
-
-      // Apply sorting
-      const [sortField, sortOrder] = sort.split(':');
-      logs.sort((a, b) => {
-        if (a[sortField] < b[sortField]) return sortOrder === "asc" ? -1 : 1;
-        if (a[sortField] > b[sortField]) return sortOrder === "asc" ? 1 : -1;
-        return 0;
-      });
-
-      // Get total logs count **after filtering**
-      const total = logs.length;
-
-      // Apply pagination
-      const startIndex = (page - 1) * limit;
-      const paginatedLogs = logs.slice(startIndex, startIndex + parseInt(limit));
-
-      // CPU stats remain unchanged
-      const cores = os.cpus().length;
-      const loadAvg = os.loadavg(); // [1min, 5min, 15min]
-      const cpuUsagePercent = loadAvg.map(avg => Math.min((avg / cores) * 100, 100));
-      const cpuInfo = os.cpus().map(cpu => ({
-        model: cpu.model,
-        speed: cpu.speed,
-        times: cpu.times
-      }));
-
-      // Send structured JSON response
-      res.json({
-        success: true,
-        cpu: {
-          cores,
-          cpuUsagePercent,
-          cpuInfo
-        },
-        logs: paginatedLogs,
-        pagination: {
-          total,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(total / limit)
-        }
-      });
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Failed to fetch logs' });
   }
 });
-
 
 // --- Login route ---
 app.post('/login', (req, res) => {
@@ -232,7 +206,7 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
 
   ff.stderr.on('data', (d) => { ffErr += d.toString(); });
 
-  ff.on('close', (code) => {
+  ff.on('close', async (code) => {
     try { fs.unlinkSync(inputPath); } catch {}
 
     const completedAt = new Date().toISOString();
@@ -244,7 +218,7 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
       completedAt,
       user: req.user.username
     };
-    appendLog(logEntry); // write to log file
+    await saveLog(logEntry); // DynamoDB
 
     if (code === 0 && fs.existsSync(outputPath)) {
       console.log(`[${completedAt}] FFmpeg finished conversion: ${outName}`);

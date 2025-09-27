@@ -68,4 +68,27 @@ async function saveMetadata(filename, metadata) {
   return await docClient.send(command);
 }
 
-module.exports = { saveMetadata };
+// --- Save conversion log ---
+async function saveLog(log) {
+  await ensureTable();
+  const command = new PutCommand({
+    TableName: TABLE_NAME,
+    Item: {
+      "qut-username": qutUsername,
+      filename: `log-${Date.now()}`, // unique key
+      ...log,
+    },
+  });
+  return await docClient.send(command);
+}
+
+// --- Fetch all logs ---
+async function getLogs() {
+  await ensureTable();
+  const command = new ScanCommand({ TableName: TABLE_NAME });
+  const result = await docClient.send(command);
+  // filter out only log entries
+  return result.Items.filter(item => item.output && item.startedAt);
+}
+
+module.exports = { saveMetadata, saveLog, getLogs };
