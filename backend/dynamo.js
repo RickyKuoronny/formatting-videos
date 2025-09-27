@@ -1,9 +1,11 @@
 require('dotenv').config();
 const { 
   DynamoDBClient, 
+  ScanCommand,
   CreateTableCommand, 
   waitUntilTableExists 
 } = require("@aws-sdk/client-dynamodb");
+const { unmarshall } = require('@aws-sdk/util-dynamodb');
 const { DynamoDBDocumentClient, PutCommand } = require("@aws-sdk/lib-dynamodb");
 
 const ddbClient = new DynamoDBClient({ region: 'ap-southeast-2' });
@@ -68,4 +70,27 @@ async function saveMetadata(filename, metadata) {
   return await docClient.send(command);
 }
 
-module.exports = { saveMetadata };
+// --- Save conversion log ---
+async function saveLog(log) {
+  await ensureTable();
+  const command = new PutCommand({
+    TableName: TABLE_NAME,
+    Item: {
+      "qut-username": qutUsername,
+      filename: `log-${Date.now()}`, // unique key
+      ...log,
+    },
+  });
+  return await docClient.send(command);
+}
+
+async function getLogs() {
+  await ensureTable();
+
+  const command = new ScanCommand({ TableName: TABLE_NAME });
+  const result = await docClient.send(command);
+
+  // Convert DynamoDB items to plain JS objects
+  return result.Items.map(item => unmarshall(item));
+}
+module.exports = { saveMetadata, saveLog, getLogs };

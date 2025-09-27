@@ -3,13 +3,13 @@ require('dotenv').config();
 const fs = require('fs');
 const { 
     S3Client, 
-    PutObjectCommand, 
     GetObjectCommand, 
     CreateBucketCommand, 
     HeadBucketCommand, 
     PutBucketTaggingCommand 
 } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const { Upload } = require("@aws-sdk/lib-storage");
 
 // Configure S3 client
 const s3Client = new S3Client({ region: 'ap-southeast-2' });
@@ -56,21 +56,37 @@ async function ensureBucket() {
     bucketEnsured = true;
 }
 
-// Upload a local file to S3
-async function uploadFile(key, filePath, contentType) {
-    await ensureBucket(); // Make sure bucket exists
-    const fileStream = fs.createReadStream(filePath);
+// Upload a file or stream to S3
+async function uploadFile(key, input, contentType) {
+    await ensureBucket(); // make sure bucket exists
 
-    await s3Client.send(new PutObjectCommand({
-        Bucket: bucketName,
-        Key: key,
-        Body: fileStream,
-        ContentType: contentType
-    }));
+    let body;
+    if (typeof input === 'string') {
+        // input is a file path
+        body = fs.createReadStream(input);
+    } else if (input.readable) {
+        // input is already a readable stream
+        body = input;
+    } else {
+        throw new Error('Invalid input: must be file path or readable stream');
+    }
+
+    const upload = new Upload({
+        client: s3Client,
+        params: {
+            Bucket: bucketName,
+            Key: key,
+            Body: body,
+            ContentType: contentType
+        }
+    });
+
+    await upload.done(); // <-- wait for full streaming upload to finish
 
     console.log(`File uploaded to S3: ${key}`);
     return key;
 }
+
 
 // Get a pre-signed URL for a file in S3
 async function getPresignedUrl(key, expiresIn = 3600) {

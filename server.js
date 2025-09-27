@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const multer = require('multer');
-const { spawn } = require('child_process');
+const { spawn,execFile  } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
@@ -10,12 +10,14 @@ const bcrypt = require('bcrypt');
 const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
+const mime = require('mime-types');
+const { Readable, PassThrough, pipeline } = require('stream');
+
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
-const { saveMetadata } = require('./backend/dynamo');
+const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
 const express = require('express');
 const session = require('express-session');
 const { Issuer, generators } = require('openid-client');
-
 
 const app = express();
 
@@ -38,15 +40,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-
-const METADATA_FILE = 'metadata.json';
-const LOG_FILE = path.join(__dirname, 'conversion_logs.json');
-const UPLOAD_DIR = path.resolve(__dirname, 'uploads');
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
-const mime = require('mime-types');
-
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 // -- Cognito quick setup from AWS COGNITO example code ---
 let client;
@@ -173,20 +167,9 @@ function requireAdmin(req, res, next) {
 }
 
 
-// --- Logs ---
-// Utility to append log
-function appendLog(entry) {
-  const logEntry = JSON.stringify(entry) + '\n'; // one JSON object per line
-  fs.appendFile(LOG_FILE, logEntry, (err) => {
-    if (err) console.error('Failed to write log:', err);
-  });
-}
-
-
 // GET /logs - only admin
-app.get('/logs', authenticateToken, requireAdmin, (req, res) => {
+app.get('/logs', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    // Extract query parameters with defaults
     const {
       page = 1,
       limit = 10,
@@ -195,69 +178,60 @@ app.get('/logs', authenticateToken, requireAdmin, (req, res) => {
       resolution
     } = req.query;
 
-    // Read logs from file
-    fs.readFile(LOG_FILE, 'utf8', (err, data) => {
-      if (err) return res.status(500).json({ error: 'Failed to read logs' });
+    // --- Fetch logs from DynamoDB ---
+    let logs = await getLogs();
 
-      // Parse logs from JSON lines
-      let logs = data.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+    // Apply filtering
+    if (user) {
+      logs = logs.filter(log => log.user && log.user.toLowerCase() === user.toLowerCase());
+    }
+    if (resolution) {
+      logs = logs.filter(log => log.resolution === resolution);
+    }
 
-      // Apply filtering
-      if (user) {
-        logs = logs.filter(log => log.user && log.user.toLowerCase() === user.toLowerCase());
+    // Apply sorting
+    const [sortField, sortOrder] = sort.split(':');
+    logs.sort((a, b) => {
+      if (a[sortField] < b[sortField]) return sortOrder === "asc" ? -1 : 1;
+      if (a[sortField] > b[sortField]) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    // Pagination
+    const total = logs.length;
+    const startIndex = (page - 1) * limit;
+    const paginatedLogs = logs.slice(startIndex, startIndex + parseInt(limit));
+
+    // CPU stats
+    const cores = os.cpus().length;
+    const loadAvg = os.loadavg();
+    const cpuUsagePercent = loadAvg.map(avg => Math.min((avg / cores) * 100, 100));
+    const cpuInfo = os.cpus().map(cpu => ({
+      model: cpu.model,
+      speed: cpu.speed,
+      times: cpu.times
+    }));
+
+    res.json({
+      success: true,
+      cpu: {
+        cores,
+        cpuUsagePercent,
+        cpuInfo
+      },
+      logs: paginatedLogs,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / limit)
       }
-      if (resolution) {
-        logs = logs.filter(log => log.resolution === resolution);
-      }
-
-      // Apply sorting
-      const [sortField, sortOrder] = sort.split(':');
-      logs.sort((a, b) => {
-        if (a[sortField] < b[sortField]) return sortOrder === "asc" ? -1 : 1;
-        if (a[sortField] > b[sortField]) return sortOrder === "asc" ? 1 : -1;
-        return 0;
-      });
-
-      // Get total logs count **after filtering**
-      const total = logs.length;
-
-      // Apply pagination
-      const startIndex = (page - 1) * limit;
-      const paginatedLogs = logs.slice(startIndex, startIndex + parseInt(limit));
-
-      // CPU stats remain unchanged
-      const cores = os.cpus().length;
-      const loadAvg = os.loadavg(); // [1min, 5min, 15min]
-      const cpuUsagePercent = loadAvg.map(avg => Math.min((avg / cores) * 100, 100));
-      const cpuInfo = os.cpus().map(cpu => ({
-        model: cpu.model,
-        speed: cpu.speed,
-        times: cpu.times
-      }));
-
-      // Send structured JSON response
-      res.json({
-        success: true,
-        cpu: {
-          cores,
-          cpuUsagePercent,
-          cpuInfo
-        },
-        logs: paginatedLogs,
-        pagination: {
-          total,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(total / limit)
-        }
-      });
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Failed to fetch logs' });
   }
 });
-
 
 // --- Login route ---
 app.post('/login', (req, res) => {
@@ -277,14 +251,7 @@ app.post('/login', (req, res) => {
 
 
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const id = Date.now() + '-' + crypto.randomBytes(4).toString('hex');
-    const ext = path.extname(file.originalname) || '.mp4';
-    cb(null, `${id}${ext}`);
-  }
-});
+const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit (adjust)
@@ -311,91 +278,114 @@ function buildScaleArg(res) {
   return `scale=${width}:${height}`;
 }
 
-app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
+
+app.post('/convert', authenticateToken, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const resolution = (req.body.resolution || '').trim();
   const scaleArg = buildScaleArg(resolution);
-
-  const inputPath = req.file.path;
-  const outName = path.basename(req.file.filename, path.extname(req.file.filename)) + '-converted.mp4';
-  const outputPath = path.join(OUTPUT_DIR, outName);
+  const outName = path.basename(req.file.originalname, path.extname(req.file.originalname)) + '-converted.mp4';
 
   const startedAt = new Date().toISOString();
   console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
 
-  const args = ['-i', inputPath, '-y', '-hide_banner', '-loglevel', 'error'];
-  if (scaleArg) args.push('-vf', scaleArg);
-  args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', outputPath);
+  // FFmpeg args for stateless streaming
+  const args = [
+    '-i', 'pipe:0',
+    '-hide_banner',
+    '-loglevel', 'error',
+    ...(scaleArg ? ['-vf', scaleArg] : []),
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '23',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-movflags', 'frag_keyframe+empty_moov', // <— key for stateless MP4
+    '-f', 'mp4',
+    'pipe:1'
+  ];
 
-  console.log(`[${new Date().toISOString()}] Starting FFmpeg conversion for ${req.file.originalname} -> ${outName}`);
+  console.log('FFmpeg args:', args.join(' '));
+
   const ff = spawn('ffmpeg', args);
-
   let ffErr = '';
+  ff.stderr.on('data', d => ffErr += d.toString());
 
-  ff.stderr.on('data', (d) => { ffErr += d.toString(); });
+  // Handle stdin errors (ignore EPIPE)
+  ff.stdin.on('error', err => { if (err.code !== 'EPIPE') console.error('FFmpeg stdin error:', err); });
 
-  ff.on('close', (code) => {
-    try { fs.unlinkSync(inputPath); } catch {}
+  // Pipe uploaded buffer to FFmpeg stdin
+  const bufferStream = Readable.from(req.file.buffer);
+  pipeline(bufferStream, ff.stdin, err => {
+    if (err && err.code !== 'EPIPE') console.error('Pipeline error (stdin):', err);
+  });
 
+  // Pipe FFmpeg output to S3 via PassThrough
+  const passThrough = new PassThrough();
+  const uploadPromise = uploadFile(outName, passThrough, 'video/mp4')
+    .catch(err => console.error('S3 upload failed:', err));
+  ff.stdout.pipe(passThrough);
+
+  // Handle FFmpeg close
+  ff.on('close', async code => {
     const completedAt = new Date().toISOString();
     const logEntry = {
-      input: req.file.filename,
+      input: req.file.originalname,
       output: outName,
       resolution,
       startedAt,
       completedAt,
       user: req.user.username
     };
-    appendLog(logEntry); // write to log file
 
-    if (code === 0 && fs.existsSync(outputPath)) {
-      console.log(`[${completedAt}] FFmpeg finished conversion: ${outName}`);
-
-      // --- Generate metadata using ffprobe ---
-      const ffprobeCmd = `ffprobe -v quiet -print_format json -show_format -show_streams "${outputPath}"`;
-      exec(ffprobeCmd, async (err, stdout) => {
-        if (err) {
-          console.error('Failed to generate metadata:', err);
-          return res.json({ ok: true, download: `/outputs/${outName}` });
-        }
-
-        const metaRaw = JSON.parse(stdout);
-        const metadata = {
-          filename: outName,
-          codec: metaRaw.streams[0].codec_name,
-          bitrate: metaRaw.format.bit_rate
-        };
-
-        // --- Upload to S3 ---
-        try {
-          const contentType = mime.lookup(outputPath) || 'video/mp4';
-          await uploadFile(outName, outputPath, contentType);
-          const presignedUrl = await getPresignedUrl(outName);
-
-          // Save metadata in DynamoDB
-          await saveMetadata(outName, metadata);
-
-          // Optionally remove local output file after upload
-          fs.unlinkSync(outputPath);
-
-          // --- Respond with pre-signed URL + metadata ---
-          res.json({
-            ok: true,
-            s3Url: presignedUrl,
-            outputFile: outName,
-            metadata
-          });
-        } catch (uploadErr) {
-          console.error('S3 upload failed:', uploadErr);
-          res.status(500).json({ error: 'S3 upload failed', details: uploadErr.message });
-        }
-      });
-
-    } else {
+    await saveLog(logEntry);
+    
+    if (code !== 0) {
       console.error(`[${completedAt}] FFmpeg failed for ${outName}:`, ffErr);
-      res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
+      return res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
     }
+
+    // Wait for S3 upload to finish
+    await uploadPromise;
+
+    const presignedUrl = await getPresignedUrl(outName);
+
+    // --- Generate metadata using ffprobe directly on S3 ---
+    const ffprobeArgs = [
+      '-v', 'quiet',
+      '-print_format', 'json',
+      '-show_format',
+      '-show_streams',
+      presignedUrl
+    ];
+
+    execFile('ffprobe', ffprobeArgs, (err, stdout) => {
+      if (err) {
+        console.error('Failed to generate metadata:', err);
+        return res.json({ ok: true, s3Url: presignedUrl, outputFile: outName });
+      }
+
+      const metaRaw = JSON.parse(stdout);
+      const metadata = {
+        filename: outName,
+        codec: metaRaw.streams[0]?.codec_name || null,
+        bitrate: metaRaw.format?.bit_rate || null
+      };
+
+      saveMetadata(outName, metadata).catch(console.error);
+
+      res.json({
+        ok: true,
+        s3Url: presignedUrl,
+        outputFile: outName,
+        metadata
+      });
+    });
+  });
+
+  ff.on('error', err => {
+    console.error('FFmpeg process error:', err);
+    res.status(500).json({ error: 'FFmpeg process failed', details: err.message });
   });
 });
 
