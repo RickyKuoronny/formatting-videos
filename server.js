@@ -181,12 +181,12 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
   const resolution = (req.body.resolution || '').trim();
   const scaleArg = buildScaleArg(resolution);
+
   const outName = path.basename(req.file.originalname, path.extname(req.file.originalname)) + '-converted.mp4';
   const startedAt = new Date().toISOString();
-
   console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
 
-  // FFmpeg args for streaming
+  // --- FFmpeg arguments to read from stdin and write to stdout ---
   const args = ['-i', 'pipe:0', '-hide_banner', '-loglevel', 'error'];
   if (scaleArg) args.push('-vf', scaleArg);
   args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-f', 'mp4', 'pipe:1');
@@ -194,22 +194,15 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
   const ff = spawn('ffmpeg', args);
 
   let ffErr = '';
-  ff.stderr.on('data', d => { ffErr += d.toString(); });
+  ff.stderr.on('data', (d) => { ffErr += d.toString(); });
 
-  ff.on('error', err => {
-    console.error('FFmpeg spawn error:', err);
-    res.status(500).json({ error: 'FFmpeg failed to start', details: err.message });
-  });
+  // Pipe the uploaded file buffer into FFmpeg
+  ff.stdin.end(req.file.buffer);
 
-  // Pipe input buffer to FFmpeg
-  ff.stdin.write(req.file.buffer);
-  ff.stdin.end();
-
-  // Pipe FFmpeg stdout to S3
+  // Create a PassThrough stream to pipe FFmpeg output to S3
   const passThrough = new PassThrough();
+  const uploadPromise = uploadFile(outName, passThrough, 'video/mp4'); // uploadFile should accept streams
   ff.stdout.pipe(passThrough);
-
-  const uploadPromise = uploadFile(outName, passThrough, 'video/mp4'); // make sure this supports streams
 
   ff.on('close', async (code) => {
     const completedAt = new Date().toISOString();
@@ -221,20 +214,19 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
       completedAt,
       user: req.user.username
     };
-
     await saveLog(logEntry);
 
     if (code !== 0) {
       console.error(`[${completedAt}] FFmpeg failed for ${outName}:`, ffErr);
-      return res.status(500).json({ error: 'FFmpeg conversion failed', details: ffErr });
+      return res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
     }
 
     try {
-      await uploadPromise;
+      await uploadPromise; // wait for S3 upload to finish
       const presignedUrl = await getPresignedUrl(outName);
 
-      const metadata = { filename: outName }; // minimal metadata
-
+      // Minimal metadata (can be extended with ffprobe if desired)
+      const metadata = { filename: outName };
       await saveMetadata(outName, metadata);
 
       res.json({
@@ -247,6 +239,11 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
       console.error('S3 upload failed:', err);
       res.status(500).json({ error: 'S3 upload failed', details: err.message });
     }
+  });
+
+  ff.on('error', (err) => {
+    console.error('FFmpeg spawn error:', err);
+    res.status(500).json({ error: 'FFmpeg process failed', details: err.message });
   });
 });
 
