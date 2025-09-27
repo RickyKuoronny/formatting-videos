@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const multer = require('multer');
-const { spawn } = require('child_process');
+const { spawn,execFile  } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
