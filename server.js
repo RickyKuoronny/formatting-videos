@@ -37,6 +37,7 @@ cloudinary.config({
 const UPLOAD_DIR = path.resolve(__dirname, 'uploads');
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 const mime = require('mime-types');
+const { PassThrough } = require('stream');
 
 // --- Hard-coded users ---
 const users = [
@@ -148,14 +149,7 @@ app.post('/login', (req, res) => {
 
 
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const id = Date.now() + '-' + crypto.randomBytes(4).toString('hex');
-    const ext = path.extname(file.originalname) || '.mp4';
-    cb(null, `${id}${ext}`);
-  }
-});
+const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit (adjust)
@@ -182,36 +176,40 @@ function buildScaleArg(res) {
   return `scale=${width}:${height}`;
 }
 
-app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
+
+app.post('/convert', authenticateToken, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const resolution = (req.body.resolution || '').trim();
   const scaleArg = buildScaleArg(resolution);
 
-  const inputPath = req.file.path;
-  const outName = path.basename(req.file.filename, path.extname(req.file.filename)) + '-converted.mp4';
-  const outputPath = path.join(OUTPUT_DIR, outName);
-
+  const outName = path.basename(req.file.originalname, path.extname(req.file.originalname)) + '-converted.mp4';
   const startedAt = new Date().toISOString();
   console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
 
-  const args = ['-i', inputPath, '-y', '-hide_banner', '-loglevel', 'error'];
+  // Build FFmpeg args for piping
+  const args = ['-i', 'pipe:0', '-hide_banner', '-loglevel', 'error'];
   if (scaleArg) args.push('-vf', scaleArg);
-  args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', outputPath);
+  args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-f', 'mp4', 'pipe:1');
 
-  console.log(`[${new Date().toISOString()}] Starting FFmpeg conversion for ${req.file.originalname} -> ${outName}`);
   const ff = spawn('ffmpeg', args);
 
   let ffErr = '';
-
   ff.stderr.on('data', (d) => { ffErr += d.toString(); });
 
-  ff.on('close', async (code) => {
-    try { fs.unlinkSync(inputPath); } catch {}
+  // Pipe input buffer into FFmpeg
+  ff.stdin.write(req.file.buffer);
+  ff.stdin.end();
 
+  // Pipe FFmpeg stdout directly to S3
+  const passThrough = new PassThrough();
+  const uploadPromise = uploadFile(outName, passThrough, 'video/mp4'); // make sure your uploadFile can accept streams
+  ff.stdout.pipe(passThrough);
+
+  ff.on('close', async (code) => {
     const completedAt = new Date().toISOString();
     const logEntry = {
-      input: req.file.filename,
+      input: req.file.originalname,
       output: outName,
       resolution,
       startedAt,
@@ -220,52 +218,29 @@ app.post('/convert', authenticateToken, upload.single('video'), (req, res) => {
     };
     await saveLog(logEntry); // DynamoDB
 
-    if (code === 0 && fs.existsSync(outputPath)) {
-      console.log(`[${completedAt}] FFmpeg finished conversion: ${outName}`);
-
-      // --- Generate metadata using ffprobe ---
-      const ffprobeCmd = `ffprobe -v quiet -print_format json -show_format -show_streams "${outputPath}"`;
-      exec(ffprobeCmd, async (err, stdout) => {
-        if (err) {
-          console.error('Failed to generate metadata:', err);
-          return res.json({ ok: true, download: `/outputs/${outName}` });
-        }
-
-        const metaRaw = JSON.parse(stdout);
-        const metadata = {
-          filename: outName,
-          codec: metaRaw.streams[0].codec_name,
-          bitrate: metaRaw.format.bit_rate
-        };
-
-        // --- Upload to S3 ---
-        try {
-          const contentType = mime.lookup(outputPath) || 'video/mp4';
-          await uploadFile(outName, outputPath, contentType);
-          const presignedUrl = await getPresignedUrl(outName);
-
-          // Save metadata in DynamoDB
-          await saveMetadata(outName, metadata);
-
-          // Optionally remove local output file after upload
-          fs.unlinkSync(outputPath);
-
-          // --- Respond with pre-signed URL + metadata ---
-          res.json({
-            ok: true,
-            s3Url: presignedUrl,
-            outputFile: outName,
-            metadata
-          });
-        } catch (uploadErr) {
-          console.error('S3 upload failed:', uploadErr);
-          res.status(500).json({ error: 'S3 upload failed', details: uploadErr.message });
-        }
-      });
-
-    } else {
+    if (code !== 0) {
       console.error(`[${completedAt}] FFmpeg failed for ${outName}:`, ffErr);
-      res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
+      return res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
+    }
+
+    try {
+      await uploadPromise;
+      const presignedUrl = await getPresignedUrl(outName);
+
+      // Generate metadata (optional, also from a stream using ffprobe if needed)
+      const metadata = { filename: outName }; // minimal metadata
+
+      await saveMetadata(outName, metadata);
+
+      res.json({
+        ok: true,
+        s3Url: presignedUrl,
+        outputFile: outName,
+        metadata
+      });
+    } catch (err) {
+      console.error('S3 upload failed:', err);
+      res.status(500).json({ error: 'S3 upload failed', details: err.message });
     }
   });
 });
