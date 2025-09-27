@@ -10,6 +10,10 @@ const bcrypt = require('bcrypt');
 const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
+const mime = require('mime-types');
+const { PassThrough } = require('stream');
+const { Upload } = require("@aws-sdk/lib-storage");
+
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
 const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
 
@@ -35,8 +39,6 @@ cloudinary.config({
 });
 
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
-const mime = require('mime-types');
-const { PassThrough } = require('stream');
 
 // --- Hard-coded users ---
 const users = [
@@ -184,24 +186,31 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
   const outName = path.basename(req.file.originalname, path.extname(req.file.originalname)) + '-converted.mp4';
   const startedAt = new Date().toISOString();
-  console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
 
-  // --- FFmpeg arguments to read from stdin and write to stdout ---
+  // FFmpeg args
   const args = ['-i', 'pipe:0', '-hide_banner', '-loglevel', 'error'];
   if (scaleArg) args.push('-vf', scaleArg);
   args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-f', 'mp4', 'pipe:1');
 
   const ff = spawn('ffmpeg', args);
-
   let ffErr = '';
-  ff.stderr.on('data', (d) => { ffErr += d.toString(); });
+  ff.stderr.on('data', (d) => ffErr += d.toString());
 
-  // Pipe the uploaded file buffer into FFmpeg
   ff.stdin.end(req.file.buffer);
 
-  // Create a PassThrough stream to pipe FFmpeg output to S3
   const passThrough = new PassThrough();
-  const uploadPromise = uploadFile(outName, passThrough, 'video/mp4'); // uploadFile should accept streams
+
+  // Use @aws-sdk/lib-storage Upload helper
+  const upload = new Upload({
+    client: s3Client,
+    params: {
+      Bucket: bucketName,
+      Key: outName,
+      Body: passThrough,
+      ContentType: 'video/mp4'
+    }
+  });
+
   ff.stdout.pipe(passThrough);
 
   ff.on('close', async (code) => {
@@ -217,15 +226,14 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     await saveLog(logEntry);
 
     if (code !== 0) {
-      console.error(`[${completedAt}] FFmpeg failed for ${outName}:`, ffErr);
+      console.error(`[${completedAt}] FFmpeg failed:`, ffErr);
       return res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
     }
 
     try {
-      await uploadPromise; // wait for S3 upload to finish
+      await upload.done(); // wait for streaming upload to complete
       const presignedUrl = await getPresignedUrl(outName);
 
-      // Minimal metadata (can be extended with ffprobe if desired)
       const metadata = { filename: outName };
       await saveMetadata(outName, metadata);
 
