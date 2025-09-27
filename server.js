@@ -186,35 +186,45 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
   const startedAt = new Date().toISOString();
   console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
-  
-  // FFmpeg args
-  const args = ['-i', 'pipe:0', '-hide_banner', '-loglevel', 'error'];
-  if (scaleArg) args.push('-vf', scaleArg);
-  args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-f', 'mp4', 'pipe:1');
-  console.log('FFmpeg args:', args.join(' '));
-  const ff = spawn('ffmpeg', args);
 
+  // FFmpeg args for stateless streaming
+  const args = [
+    '-i', 'pipe:0',
+    '-hide_banner',
+    '-loglevel', 'error',
+    ...(scaleArg ? ['-vf', scaleArg] : []),
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '23',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-movflags', 'frag_keyframe+empty_moov', // <— key for stateless MP4
+    '-f', 'mp4',
+    'pipe:1'
+  ];
+
+  console.log('FFmpeg args:', args.join(' '));
+
+  const ff = spawn('ffmpeg', args);
   let ffErr = '';
   ff.stderr.on('data', d => ffErr += d.toString());
 
-  // Handle FFmpeg stdin errors gracefully
-  ff.stdin.on('error', err => {
-    if (err.code !== 'EPIPE') console.error('FFmpeg stdin error:', err);
-  });
+  // Handle stdin errors (ignore EPIPE)
+  ff.stdin.on('error', err => { if (err.code !== 'EPIPE') console.error('FFmpeg stdin error:', err); });
 
-  // Create buffer stream and pipe safely using pipeline
+  // Pipe uploaded buffer to FFmpeg stdin
   const bufferStream = Readable.from(req.file.buffer);
   pipeline(bufferStream, ff.stdin, err => {
     if (err && err.code !== 'EPIPE') console.error('Pipeline error (stdin):', err);
   });
 
-  // Stream FFmpeg stdout to S3
+  // Pipe FFmpeg output to S3 via PassThrough
   const passThrough = new PassThrough();
   const uploadPromise = uploadFile(outName, passThrough, 'video/mp4')
     .catch(err => console.error('S3 upload failed:', err));
   ff.stdout.pipe(passThrough);
 
-  // Handle FFmpeg process close
+  // Handle FFmpeg close
   ff.on('close', async code => {
     const completedAt = new Date().toISOString();
 
@@ -251,13 +261,11 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     });
   });
 
-  // Handle unexpected FFmpeg errors
   ff.on('error', err => {
     console.error('FFmpeg process error:', err);
     res.status(500).json({ error: 'FFmpeg process failed', details: err.message });
   });
 });
-
 
 // Extension API cloudinary
 app.post('/upload-external', authenticateToken, async (req, res) => {
