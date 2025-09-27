@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { 
   DynamoDBClient, 
+  ScanCommand,
   CreateTableCommand, 
   waitUntilTableExists 
 } = require("@aws-sdk/client-dynamodb");
