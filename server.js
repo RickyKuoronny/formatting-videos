@@ -12,7 +12,6 @@ const { exec } = require('child_process');
 const cloudinary = require('cloudinary').v2;
 const mime = require('mime-types');
 const { PassThrough } = require('stream');
-const { Upload } = require("@aws-sdk/lib-storage");
 
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
 const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
@@ -178,7 +177,6 @@ function buildScaleArg(res) {
 }
 
 
-
 app.post('/convert', authenticateToken, upload.single('video'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -190,7 +188,7 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     const startedAt = new Date().toISOString();
     console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
 
-    // Build FFmpeg arguments for streaming
+    // FFmpeg args for streaming input/output
     const args = ['-i', 'pipe:0', '-hide_banner', '-loglevel', 'error'];
     if (scaleArg) args.push('-vf', scaleArg);
     args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-f', 'mp4', 'pipe:1');
@@ -200,11 +198,11 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     let ffErr = '';
     ff.stderr.on('data', d => ffErr += d.toString());
 
-    // Pipe uploaded buffer into FFmpeg
+    // Pipe uploaded file buffer into FFmpeg stdin
     ff.stdin.write(req.file.buffer);
     ff.stdin.end();
 
-    // Stream FFmpeg output directly into S3
+    // Stream FFmpeg stdout directly to S3 using uploadFile helper
     const passThrough = new PassThrough();
     const uploadPromise = uploadFile(outName, passThrough, 'video/mp4');
     ff.stdout.pipe(passThrough);
@@ -212,7 +210,7 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     ff.on('close', async code => {
       const completedAt = new Date().toISOString();
 
-      // Save log to DynamoDB
+      // Save conversion log
       const logEntry = {
         input: req.file.originalname,
         output: outName,
@@ -254,6 +252,7 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     res.status(500).json({ error: 'Conversion failed', details: err.message });
   }
 });
+
 
 // Extension API cloudinary
 app.post('/upload-external', authenticateToken, async (req, res) => {
