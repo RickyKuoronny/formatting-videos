@@ -83,13 +83,13 @@ async function saveLog(log) {
   return await docClient.send(command);
 }
 
-// --- Fetch all logs ---
 async function getLogs() {
   await ensureTable();
+
   const command = new ScanCommand({ TableName: TABLE_NAME });
   const result = await docClient.send(command);
-  // filter out only log entries
-  return result.Items.filter(item => item.output && item.startedAt);
-}
 
+  // Convert DynamoDB items to plain JS objects
+  return result.Items.map(item => unmarshall(item));
+}
 module.exports = { saveMetadata, saveLog, getLogs };
