@@ -5,16 +5,23 @@ const multer = require('multer');
 const { spawn,execFile  } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
 const os = require('os');
 const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
 const mime = require('mime-types');
 const { Readable, PassThrough, pipeline } = require('stream');
+const { Issuer } = require('openid-client');
 
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
 const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
+const {
+  signUpUser,
+  confirmUser,
+  initiateAuthFlow,
+  respondToChallenge,
+  verifyIdToken,
+  cognitoClientConfig
+} = require('./backend/cognito');
 
 const app = express();
 
@@ -27,7 +34,12 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
+const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN;
+const COGNITO_REDIRECT_URI = process.env.COGNITO_REDIRECT_URI;
+
+const OAUTH_STATE_TTL = 5 * 60 * 1000; // 5 minutes
+const oauthStates = new Map();
+let oidcClientPromise;
 
 app.use(express.json()); // for parsing JSON bodies
 
@@ -39,28 +51,86 @@ cloudinary.config({
 
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 
-// --- Hard-coded users ---
-const users = [
-  { username: 'user1', passwordHash: bcrypt.hashSync('pass', 10), role: 'user' },
-  { username: 'admin', passwordHash: bcrypt.hashSync('adminpass', 10), role: 'admin' }
-];
+function normalizeUserFromToken(payload) {
+  const groups = payload['cognito:groups'] || [];
+  const username = payload['cognito:username'] || payload['preferred_username'] || payload.email || payload.sub;
+  const role = groups.includes('admin') ? 'admin' : 'user';
+
+  return {
+    username,
+    sub: payload.sub,
+    email: payload.email,
+    groups,
+    role,
+    payload
+  };
+}
+
+function validatePassword(password) {
+  const errors = [];
+  if (typeof password !== 'string' || password.length < 8) errors.push('Password must be at least 8 characters long.');
+  if (!/[0-9]/.test(password)) errors.push('Password must include at least one number.');
+  if (!/[A-Z]/.test(password)) errors.push('Password must include at least one uppercase letter.');
+  if (!/[a-z]/.test(password)) errors.push('Password must include at least one lowercase letter.');
+  if (!/[^A-Za-z0-9]/.test(password)) errors.push('Password must include at least one symbol.');
+  return errors;
+}
+
+function pruneOauthStates() {
+  const cutoff = Date.now() - OAUTH_STATE_TTL;
+  for (const [state, timestamp] of oauthStates.entries()) {
+    if (timestamp < cutoff) {
+      oauthStates.delete(state);
+    }
+  }
+}
+
+async function getOidcClient() {
+  if (!oidcClientPromise) {
+    if (!COGNITO_DOMAIN || !cognitoClientConfig.clientId || !COGNITO_REDIRECT_URI) {
+      throw new Error('Federated login is not configured correctly.');
+    }
+
+    const issuerUrl = `${COGNITO_DOMAIN.replace(/\/$/, '')}/.well-known/openid-configuration`;
+    oidcClientPromise = Issuer.discover(issuerUrl).then((issuer) => new issuer.Client({
+      client_id: cognitoClientConfig.clientId,
+      client_secret: cognitoClientConfig.clientSecret,
+      redirect_uris: [COGNITO_REDIRECT_URI],
+      response_types: ['code']
+    }));
+  }
+
+  return oidcClientPromise;
+}
 
 // --- JWT middleware ---
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.sendStatus(401);
+async function authenticateToken(req, res, next) {
+  try {
+    const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Missing Authorization header' });
+    }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (!match) {
+      return res.status(401).json({ error: 'Authorization header must be in the format "Bearer <token>"' });
+    }
+
+    const token = match[1];
+    const payload = await verifyIdToken(token);
+    req.user = normalizeUserFromToken(payload);
     next();
-  });
+  } catch (error) {
+    console.error('Token verification failed:', error);
+    res.status(401).json({ error: 'Invalid or expired token', details: error.message });
+  }
 }
 
 // Middleware to check admin role
 function requireAdmin(req, res, next) {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden: Admins only' });
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden: Admins only' });
+  }
   next();
 }
 
@@ -131,20 +201,182 @@ app.get('/logs', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-// --- Login route ---
-app.post('/login', (req, res) => {
-  const { username, password } = req.body;
-  const user = users.find(u => u.username === username);
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
-  if (!bcrypt.compareSync(password, user.passwordHash)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+// --- Cognito-driven auth routes ---
+app.post('/auth/signup', async (req, res) => {
+  const { username, password, email } = req.body || {};
+  if (!username || !password || !email) {
+    return res.status(400).json({ error: 'username, password, and email are required.' });
   }
 
-  const payload = { username: user.username, role: user.role };
-  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
+  const passwordIssues = validatePassword(password);
+  if (passwordIssues.length) {
+    return res.status(400).json({ error: 'Password does not meet requirements', details: passwordIssues });
+  }
 
-  res.json({ token });
+  try {
+    const result = await signUpUser({ username, password, email });
+    res.status(201).json({
+      message: 'Signup initiated. Check your email for the confirmation code.',
+      userSub: result.UserSub,
+      userConfirmed: result.UserConfirmed
+    });
+  } catch (error) {
+    console.error('Sign up failed:', error);
+    res.status(400).json({ error: error.name || 'Signup failed', details: error.message });
+  }
+});
+
+app.post('/auth/confirm', async (req, res) => {
+  const { username, confirmationCode } = req.body || {};
+  if (!username || !confirmationCode) {
+    return res.status(400).json({ error: 'username and confirmationCode are required.' });
+  }
+
+  try {
+    await confirmUser({ username, confirmationCode });
+    res.json({ message: 'User confirmed successfully.' });
+  } catch (error) {
+    console.error('Confirmation failed:', error);
+    res.status(400).json({ error: error.name || 'Confirmation failed', details: error.message });
+  }
+});
+
+app.post('/auth/login', async (req, res) => {
+  const { username, password, otp, session, challengeName } = req.body || {};
+
+  if (otp) {
+    if (!session || !challengeName) {
+      return res.status(400).json({ error: 'session and challengeName are required when providing an OTP.' });
+    }
+
+    try {
+      const response = await respondToChallenge({ username, session, challengeName, otp });
+
+      if (response.ChallengeName) {
+        return res.status(202).json({
+          message: 'Additional verification step required.',
+          challengeName: response.ChallengeName,
+          session: response.Session
+        });
+      }
+
+      const tokens = response.AuthenticationResult;
+      const payload = await verifyIdToken(tokens.IdToken);
+      const user = normalizeUserFromToken(payload);
+
+      return res.json({
+        tokens: {
+          idToken: tokens.IdToken,
+          accessToken: tokens.AccessToken,
+          refreshToken: tokens.RefreshToken,
+          expiresIn: tokens.ExpiresIn,
+          tokenType: tokens.TokenType
+        },
+        user
+      });
+    } catch (error) {
+      console.error('MFA verification failed:', error);
+      return res.status(400).json({ error: error.name || 'MFA verification failed', details: error.message });
+    }
+  }
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'username and password are required.' });
+  }
+
+  try {
+    const response = await initiateAuthFlow({ username, password });
+
+    if (response.ChallengeName) {
+      return res.status(202).json({
+        message: 'Additional verification required. Submit the OTP with the provided session.',
+        challengeName: response.ChallengeName,
+        session: response.Session
+      });
+    }
+
+    const tokens = response.AuthenticationResult;
+    const payload = await verifyIdToken(tokens.IdToken);
+    const user = normalizeUserFromToken(payload);
+
+    res.json({
+      tokens: {
+        idToken: tokens.IdToken,
+        accessToken: tokens.AccessToken,
+        refreshToken: tokens.RefreshToken,
+        expiresIn: tokens.ExpiresIn,
+        tokenType: tokens.TokenType
+      },
+      user
+    });
+  } catch (error) {
+    console.error('Login failed:', error);
+    res.status(400).json({ error: error.name || 'Login failed', details: error.message });
+  }
+});
+
+app.get('/auth/google', (req, res) => {
+  if (!COGNITO_DOMAIN || !cognitoClientConfig.clientId || !COGNITO_REDIRECT_URI) {
+    return res.status(500).json({ error: 'Federated login is not configured correctly.' });
+  }
+
+  pruneOauthStates();
+  const state = crypto.randomBytes(16).toString('hex');
+  oauthStates.set(state, Date.now());
+
+  const authorizeUrl = new URL(`${COGNITO_DOMAIN.replace(/\/$/, '')}/oauth2/authorize`);
+  authorizeUrl.searchParams.set('response_type', 'code');
+  authorizeUrl.searchParams.set('client_id', cognitoClientConfig.clientId);
+  authorizeUrl.searchParams.set('redirect_uri', COGNITO_REDIRECT_URI);
+  authorizeUrl.searchParams.set('scope', 'openid email profile');
+  authorizeUrl.searchParams.set('identity_provider', 'Google');
+  authorizeUrl.searchParams.set('state', state);
+
+  res.json({ authUrl: authorizeUrl.toString(), state });
+});
+
+app.get('/oauth2/callback', async (req, res) => {
+  const { code, state, error, error_description: errorDescription } = req.query;
+
+  if (error) {
+    return res.status(400).json({ error, details: errorDescription });
+  }
+
+  if (!code || !state) {
+    return res.status(400).json({ error: 'Missing code or state parameter.' });
+  }
+
+  pruneOauthStates();
+  if (!oauthStates.has(state)) {
+    return res.status(400).json({ error: 'Invalid or expired OAuth state.' });
+  }
+  oauthStates.delete(state);
+
+  if (!COGNITO_DOMAIN || !cognitoClientConfig.clientId || !COGNITO_REDIRECT_URI) {
+    return res.status(500).json({ error: 'Federated login is not configured correctly.' });
+  }
+
+  try {
+    const client = await getOidcClient();
+    const tokenSet = await client.callback(COGNITO_REDIRECT_URI, { code, state }, { state });
+    const payload = await verifyIdToken(tokenSet.id_token);
+    const user = normalizeUserFromToken(payload);
+
+    res.json({
+      tokens: {
+        idToken: tokenSet.id_token,
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token,
+        expiresIn: tokenSet.expires_in,
+        tokenType: tokenSet.token_type,
+        scope: tokenSet.scope
+      },
+      user
+    });
+  } catch (err) {
+    console.error('OAuth callback failed:', err);
+    res.status(500).json({ error: 'Failed to exchange authorization code', details: err.message });
+  }
 });
 
 
