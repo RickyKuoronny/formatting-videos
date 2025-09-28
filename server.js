@@ -60,8 +60,7 @@ loadSecrets()
 const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN;
 const COGNITO_REDIRECT_URI = process.env.COGNITO_REDIRECT_URI;
 // Start server
-const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server running on port ${port}`));
+const PORT = process.env.PORT || 3000;
 
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 
