@@ -2,7 +2,7 @@ const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client
 
 async function loadSecrets() {
   const client = new SecretsManagerClient({ region: "ap-southeast-2" }); // match your secret's region
-  const command = new GetSecretValueCommand({ SecretId: "myAppSecrets" }); // replace with your secret name
+  const command = new GetSecretValueCommand({ SecretId: "n10666630-a2" }); // replace with your secret name
   const response = await client.send(command);
 
   if (!response.SecretString) throw new Error("Secret is empty!");
