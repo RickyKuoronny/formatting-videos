@@ -50,10 +50,6 @@ loadSecrets()
       api_key: process.env.CLOUDINARY_API_KEY,
       api_secret: process.env.CLOUDINARY_API_SECRET
     });
-
-    // Start server
-    const port = process.env.PORT || 3000;
-    app.listen(port, () => console.log(`Server running on port ${port}`));
   })
   .catch(err => {
     console.error("Failed to load secrets:", err);
@@ -63,6 +59,9 @@ loadSecrets()
 // Use Cognito values
 const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN;
 const COGNITO_REDIRECT_URI = process.env.COGNITO_REDIRECT_URI;
+// Start server
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`Server running on port ${port}`));
 
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 
