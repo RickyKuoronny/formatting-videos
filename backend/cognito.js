@@ -12,7 +12,7 @@ const cloudinary = require('cloudinary').v2;
 
 let initialized = false;
 let cognitoClient;
-let clientId, clientSecret, userPoolId, region;
+let clientId, clientSecret, userPoolId, region, cognitoDomain, redirectUri;
 let idTokenVerifier;
 
 // Helper to lazy-initialize
@@ -31,6 +31,8 @@ async function init() {
   clientId = process.env.COGNITO_CLIENT_ID;
   clientSecret = process.env.COGNITO_CLIENT_SECRET;
   userPoolId = process.env.COGNITO_USER_POOL_ID;
+  cognitoDomain = process.env.COGNITO_DOMAIN;
+  redirectUri = process.env.COGNITO_REDIRECT_URI;
 
   cognitoClient = new CognitoIdentityProviderClient({ region });
 
@@ -109,6 +111,17 @@ async function _verifyIdToken(token) {
   return idTokenVerifier.verify(token);
 }
 
+async function _getCognitoClientConfig() {
+  return {
+    clientId,
+    clientSecret,
+    userPoolId,
+    region,
+    cognitoDomain,
+    redirectUri
+  };
+}
+
 // Export functions wrapped with init
 module.exports = {
   signUpUser: withInit(_signUpUser),
@@ -116,5 +129,6 @@ module.exports = {
   initiateAuthFlow: withInit(_initiateAuthFlow),
   respondToChallenge: withInit(_respondToChallenge),
   verifyIdToken: withInit(_verifyIdToken),
-  secretHash: withInit(secretHash) // optional, rarely used outside
+  secretHash: withInit(secretHash), // optional, rarely used outside
+  getCognitoClientConfig: withInit(_getCognitoClientConfig)
 };
