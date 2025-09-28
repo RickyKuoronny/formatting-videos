@@ -13,7 +13,13 @@
   <button id="logoutBtn">Logout</button>
 
   <section id="authSection">
-    <div class="card" id="signupCard">
+    <div id="authNav" class="auth-nav">
+      <button type="button" class="auth-nav-btn" data-auth-target="loginCard">Sign in</button>
+      <button type="button" class="auth-nav-btn" data-auth-target="signupCard">Sign up</button>
+      <button type="button" class="auth-nav-btn" data-auth-target="confirmCard">Confirm account</button>
+    </div>
+
+    <div class="card auth-card hidden" id="signupCard">
       <h2>Create account</h2>
       <label for="signupUsername">Username</label>
       <input id="signupUsername" type="text" placeholder="Choose a username" autocomplete="username" />
@@ -29,7 +35,7 @@
       <p class="feedback" id="signupFeedback"></p>
     </div>
 
-    <div class="card" id="confirmCard">
+  <div class="card auth-card hidden" id="confirmCard">
       <h2>Confirm account</h2>
       <label for="confirmUsername">Username</label>
       <input id="confirmUsername" type="text" placeholder="Your username" autocomplete="username" />
@@ -41,7 +47,7 @@
       <p class="feedback" id="confirmFeedback"></p>
     </div>
 
-    <div class="card" id="loginCard">
+  <div class="card auth-card" id="loginCard">
       <h2>Sign in</h2>
       <label for="loginUsername">Username</label>
       <input id="loginUsername" type="text" placeholder="Enter username" autocomplete="username" />
@@ -157,10 +163,13 @@
 
     const userBadge = document.getElementById('userBadge');
     const logoutBtn = document.getElementById('logoutBtn');
-    const authSection = document.getElementById('authSection');
-    const signupFeedback = document.getElementById('signupFeedback');
-    const confirmFeedback = document.getElementById('confirmFeedback');
-    const loginFeedback = document.getElementById('loginFeedback');
+  const authSection = document.getElementById('authSection');
+  const signupFeedback = document.getElementById('signupFeedback');
+  const confirmFeedback = document.getElementById('confirmFeedback');
+  const loginFeedback = document.getElementById('loginFeedback');
+  const authNav = document.getElementById('authNav');
+  const authNavButtons = authNav ? Array.from(authNav.querySelectorAll('.auth-nav-btn')) : [];
+  const authCards = Array.from(document.querySelectorAll('.auth-card'));
     const mfaSection = document.getElementById('mfaSection');
     const mfaHint = document.getElementById('mfaHint');
     const otpInput = document.getElementById('otp');
@@ -180,6 +189,22 @@
       } else {
         el.style.display = 'none';
       }
+    }
+
+    function showAuthCard(cardId) {
+      authCards.forEach(card => {
+        card.classList.toggle('hidden', card.id !== cardId);
+      });
+
+      authNavButtons.forEach(btn => {
+        const isActive = btn.dataset.authTarget === cardId;
+        btn.classList.toggle('active', isActive);
+        if (isActive) {
+          btn.setAttribute('aria-current', 'true');
+        } else {
+          btn.removeAttribute('aria-current');
+        }
+      });
     }
 
     function persistAuth() {
@@ -215,7 +240,7 @@
         userBadge.classList.add('active');
         adminBtn.style.display = state.user.role === 'admin' ? 'block' : 'none';
       } else {
-        authSection.style.display = 'grid';
+        authSection.style.display = 'flex';
         uploader.style.display = 'none';
         logoutBtn.style.display = 'none';
         adminPanel.style.display = 'none';
@@ -225,6 +250,7 @@
         cloudBtn.style.display = 'none';
         clearInterval(cpuInterval);
         cpuInterval = null;
+        showAuthCard('loginCard');
       }
     }
 
@@ -245,6 +271,7 @@
       mfaSection.style.display = 'flex';
       mfaHint.textContent = `Additional verification required for ${username}. Enter the code from your authenticator.`;
       otpInput.focus();
+      showAuthCard('loginCard');
     }
 
     function clearPendingChallenge() {
@@ -273,6 +300,7 @@
         const json = await resp.json();
         if (!resp.ok) throw new Error(json.details || json.error || 'Signup failed');
         setFeedback(signupFeedback, json.message || 'Signup initiated! Check your email for the confirmation code.', 'success');
+        showAuthCard('confirmCard');
       } catch (err) {
         setFeedback(signupFeedback, err.message, 'error');
       }
@@ -296,6 +324,7 @@
         const json = await resp.json();
         if (!resp.ok) throw new Error(json.details || json.error || 'Confirmation failed');
         setFeedback(confirmFeedback, json.message || 'User confirmed successfully.', 'success');
+        showAuthCard('loginCard');
       } catch (err) {
         setFeedback(confirmFeedback, err.message, 'error');
       }
@@ -503,10 +532,18 @@
       clearPendingChallenge();
       persistAuth();
       applyAuthState();
+  showAuthCard('loginCard');
       setFeedback(loginFeedback, 'You have been logged out.', 'info');
       const tbody = document.querySelector('#logsTable tbody');
       tbody.innerHTML = '';
     }
+
+    authNavButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = btn.dataset.authTarget;
+        if (target) showAuthCard(target);
+      });
+    });
 
     document.getElementById('signupBtn').addEventListener('click', handleSignup);
     document.getElementById('confirmBtn').addEventListener('click', handleConfirmation);
@@ -682,7 +719,8 @@
       }
     });
 
-    restoreAuth();
+  showAuthCard('loginCard');
+  restoreAuth();
     applyAuthState();
     handleOAuthCallback();
 

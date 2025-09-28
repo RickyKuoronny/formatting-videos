@@ -60,10 +60,45 @@ h1 {
 
 #authSection {
   width: 100%;
-  max-width: 1080px;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.auth-nav {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.auth-nav-btn {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ecf0f1;
+  color: #34495e;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  align-self: stretch;
+  justify-self: stretch;
+  text-align: center;
+}
+
+.auth-nav-btn:hover {
+  background: #d5dde0;
+}
+
+.auth-nav-btn.active {
+  background: #3498db;
+  color: #fff;
+  box-shadow: 0 10px 20px rgba(46, 134, 193, 0.25);
+}
+
+.auth-card.hidden {
+  display: none;
 }
 
 .card {
@@ -145,7 +180,7 @@ button.secondary:hover {
 button.adminToggle {
   width: 100%;
   max-width: 600px;
-  margin-top: 8px;
+  margin: 8px auto 0 auto;
   background: #27ae60;
   color: #fff;
   box-shadow: 0 10px 22px rgba(39, 174, 96, 0.25);
@@ -355,7 +390,7 @@ button.adminToggle:hover {
   }
 
   #authSection {
-    grid-template-columns: 1fr;
+    max-width: 100%;
   }
 
   button.adminToggle {
