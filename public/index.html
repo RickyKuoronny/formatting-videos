@@ -147,110 +147,134 @@
     });
 
     // UPLOAD HANDLER
-    document.getElementById('uploadBtn').addEventListener('click', async () => {
+    document.getElementById('uploadBtn').addEventListener('click', () => {
+        cloudBtn.style.display = "none";
+        if (!jwtToken) {
+            alert('Please login first');
+            return;
+        }
+
         const fileEl = document.getElementById('video');
         const resolution = document.getElementById('resolution').value;
+
+
+
+
+        // Validate input
+        if (!fileEl.files.length) {
+            alert('Choose a video');
+            return;
+        }
+
+        if (!resolution) {
+            alert('Select resolution');
+            return;
+        }
+
+        // Disable inputs while uploading
+        fileEl.disabled = true;
+        document.getElementById('resolution').disabled = true;
+        document.getElementById('uploadBtn').disabled = true;
+
+        // Prepare FormData
+        const fd = new FormData();
+        fd.append('video', fileEl.files[0]);
+        fd.append('resolution', resolution);
+
         const statusEl = document.getElementById('status');
         const progressBar = document.getElementById('uploadProgress');
         const progressText = document.getElementById('progressText');
 
-        if (!fileEl.files.length) return alert('Choose a video');
-        if (!resolution) return alert('Select resolution');
-
-        // Disable inputs during upload
-        fileEl.disabled = true;
-        document.getElementById('resolution').disabled = true;
-        document.getElementById('uploadBtn').disabled = true;
-        statusEl.textContent = 'Requesting upload URL...';
+        // Reset progress
         progressBar.value = 0;
         progressText.textContent = '0%';
+        statusEl.textContent = 'Uploading...';
 
-        try {
-            // 1. Get pre-signed upload URL from server
-            const presignResp = await fetch(`/presign-upload?filename=${encodeURIComponent(fileEl.files[0].name)}&contentType=video/mp4`, {
-                headers: { 'Authorization': 'Bearer ' + jwtToken }
-            });
-            const { key, url } = await presignResp.json();
+        // Use XMLHttpRequest for upload tracking
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/convert', true);
+        xhr.setRequestHeader('Authorization', 'Bearer ' + jwtToken);
 
-            // 2. Upload directly to S3 using XMLHttpRequest to track progress
-            statusEl.textContent = 'Uploading to S3...';
-            await new Promise((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open('PUT', url, true);
-                xhr.setRequestHeader('Content-Type', 'video/mp4');
+        // Track upload progress
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percent = Math.round((event.loaded / event.total) * 100);
+                progressBar.value = percent;
+                progressText.textContent = percent + '%';
 
-                xhr.upload.onprogress = (event) => {
-                    if (event.lengthComputable) {
-                        const percent = Math.round((event.loaded / event.total) * 100);
-                        progressBar.value = percent;
-                        progressText.textContent = percent + '%';
-                        if (percent === 100) statusEl.textContent = 'Uploaded! Converting...';
-                    }
-                };
-
-                xhr.onload = () => {
-                    if (xhr.status === 200) resolve();
-                    else reject(new Error(`Upload failed with status ${xhr.status}`));
-                };
-
-                xhr.onerror = () => reject(new Error('Network error during upload'));
-                xhr.send(fileEl.files[0]);
-            });
-
-            // 3. Tell server to convert the file in S3
-            const convertResp = await fetch('/convert', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + jwtToken
-                },
-                body: JSON.stringify({ key, resolution })
-            });
-            const data = await convertResp.json();
-
-            // 4. Show results and enable Cloudinary upload
-            statusEl.innerHTML = `
-                <p style="font-weight:bold; color:green;">
-                    Converted! <a href="${data.s3Url}" target="_blank" style="color:blue;">Download here</a>
-                </p>
-                <ul style="list-style:none; padding-left:0;">
-                    <li><strong>Codec:</strong> ${data.metadata?.codec || 'N/A'}</li>
-                    <li><strong>Bitrate:</strong> ${data.metadata?.bitrate || 'N/A'}</li>
-                </ul>
-            `;
-
-            // Show Cloudinary upload button and set filename
-            cloudBtn.style.display = 'block';
-            cloudBtn.dataset.filename = data.outputFile.split('/').pop();
-            cloudBtn.disabled = false;
-            cloudBtn.textContent = 'Upload to Cloud';
-
-            // Attach click handler safely
-            cloudBtn.onclick = async () => {
-                const filename = cloudBtn.dataset.filename;
-                cloudBtn.disabled = true;
-                cloudBtn.textContent = 'Uploading...';
-
-                try {
-                    await fetchExternalVideoInfo(filename);
-                    cloudBtn.textContent = 'Uploaded!';
-                } catch (err) {
-                    console.error(err);
-                    cloudBtn.disabled = false;
-                    cloudBtn.textContent = 'Upload to Cloud';
-                    alert('Upload failed, try again.');
+                if (percent === 100) {
+                    statusEl.textContent = 'Converting... Please wait';
                 }
-            };
+            }
+        };
 
-        } catch (err) {
-            console.error(err);
-            statusEl.textContent = `Error: ${err.message}`;
-        } finally {
+        // Handle response
+        xhr.onload = () => {
             // Re-enable inputs
             fileEl.disabled = false;
             document.getElementById('resolution').disabled = false;
             document.getElementById('uploadBtn').disabled = false;
-        }
+
+            const statusEl = document.getElementById('status');
+
+            if (xhr.status === 200) {
+                const json = JSON.parse(xhr.responseText);
+
+                statusEl.innerHTML = `
+                    <p style="font-weight:bold; color:green;">
+                        Converted! <a href="${json.s3Url}" target="_blank" style="color:blue;">Download here</a>
+                    </p>
+                    <ul style="list-style:none; padding-left:0;">
+                        <li><strong>Codec:</strong> ${json.metadata.codec}</li>
+                        <li><strong>Bitrate:</strong> ${json.metadata.bitrate}</li>
+                    </ul>
+                `;
+                // Show Cloudinary upload button and set filename
+                cloudBtn.style.display = 'block';
+                cloudBtn.dataset.filename = json.outputFile.split('/').pop();
+                cloudBtn.disabled = false;
+                cloudBtn.textContent = 'Upload to Cloud';
+
+                // Attach click handler safely
+                cloudBtn.onclick = async () => {
+                    console.log('HIT cloud button');
+                    const filename = cloudBtn.dataset.filename;
+                    cloudBtn.disabled = true;
+                    cloudBtn.textContent = 'Uploading...';
+
+                    try {
+                        await fetchExternalVideoInfo(filename);
+                        cloudBtn.textContent = 'Uploaded!';
+                    } catch (err) {
+                        console.error(err);
+                        cloudBtn.disabled = false;
+                        cloudBtn.textContent = 'Upload to Cloud';
+                        alert('Upload failed, try again.');
+                    }
+                };
+
+            } else {
+                let errMsg = 'Upload failed';
+                try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
+                statusEl.innerHTML = `<p style="color:red; font-weight:bold;">Error: ${errMsg}</p>`;
+            }
+        };
+
+
+
+        // Handle network errors
+        xhr.onerror = () => {
+
+
+
+            fileEl.disabled = false;
+            document.getElementById('resolution').disabled = false;
+            document.getElementById('uploadBtn').disabled = false;
+            statusEl.textContent = 'Error: Upload failed';
+        };
+
+        // Send request
+        xhr.send(fd);
     });
 
 
