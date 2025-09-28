@@ -15,7 +15,8 @@ Overview
 
 - **Name:** Ricky Kuoronny
 - **Student number:** n10666630
-- **Partner name (if applicable):** Shang-Zhe Lin
+- **Partner name (if applicable):** ShangZhe Lin
+- **Partner number:** n11036583
 - **Application name:** Video Processing
 - **Two line description:** A web platform where users can upload videos, resize, and convert them to different formats.  
 Users can also retrieve processed videos via a REST API.
@@ -60,10 +61,11 @@ Users can also retrieve processed videos via a REST API.
 
 ### S3 Pre-signed URLs
 
-- **S3 Bucket names:**
-- **Video timestamp:**
+- **S3 Bucket names:** a2-n10666630
+- **Video timestamp:** 
 - **Relevant files:**
-    -
+    - /backend/s3.js
+    - server.js
 
 ### In-memory cache
 
@@ -95,7 +97,7 @@ Users can also retrieve processed videos via a REST API.
 
 ### Core - Authentication with Cognito
 
-- **User pool name:**
+- **User pool name:** A2_n11036583_userpool 
 - **How are authentication tokens handled by the client?:** [eg. Response to login request sets a cookie containing the token.]
 - **Video timestamp:**
 - **Relevant files:**
@@ -103,21 +105,21 @@ Users can also retrieve processed videos via a REST API.
 
 ### Cognito multi-factor authentication
 
-- **What factors are used for authentication:** [eg. password, SMS code]
+- **What factors are used for authentication:** Email One Time Code, and Password
 - **Video timestamp:**
 - **Relevant files:**
     -
 
 ### Cognito federated identities
 
-- **Identity providers used:**
+- **Identity providers used:** Google
 - **Video timestamp:**
 - **Relevant files:**
     -
 
 ### Cognito groups
 
-- **How are groups used to set permissions?:** [eg. 'admin' users can delete and ban other users]
+- **How are groups used to set permissions?:** `user` can use the format video application and `admin` can see the logs and cpu usage
 - **Video timestamp:**
 - **Relevant files:**
     -
