@@ -91,7 +91,8 @@ async function respondToChallenge({ username, session, challengeName, otp }) {
       challengeResponses.SOFTWARE_TOKEN_MFA_CODE = otp;
       break;
     case 'EMAIL_OTP':
-      challengeResponses.ANSWER = otp;
+    case 'EMAIL_OTP_MULTI_FACTOR_AUTH':
+      challengeResponses.EMAIL_OTP_CODE = otp;
       break;
     case 'CUSTOM_CHALLENGE':
       challengeResponses.ANSWER = otp;

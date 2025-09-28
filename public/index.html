@@ -6,439 +6,691 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" href="styles.css">
-
 </head>
 <body>
   <h1>Video Resizer</h1>
-
-  <!-- LOGOUT -->
+  <div id="userBadge" class="badge">Not signed in</div>
   <button id="logoutBtn">Logout</button>
 
-  <!-- LOGIN -->
-  <div id="loginForm">
-    <h2>Login</h2>
-    <label>Username</label>
-    <input id="username" type="text" placeholder="Enter username" />
-    <label>Password</label>
-    <input id="password" type="password" placeholder="Enter password" />
-    <button id="loginBtn">Login</button>
-  </div>
+  <section id="authSection">
+    <div class="card" id="signupCard">
+      <h2>Create account</h2>
+      <label for="signupUsername">Username</label>
+      <input id="signupUsername" type="text" placeholder="Choose a username" autocomplete="username" />
 
-  <!-- UPLOADER (Hidden Initially) -->
-  <div id="uploader" style="display:none;">
-    <h2>Upload Video</h2>
-    <label>Video file</label>
+      <label for="signupEmail">Email</label>
+      <input id="signupEmail" type="email" placeholder="name@example.com" autocomplete="email" />
+
+      <label for="signupPassword">Password</label>
+      <input id="signupPassword" type="password" placeholder="Minimum 8 characters" autocomplete="new-password" />
+      <small class="helper">Include uppercase, lowercase, number, and symbol.</small>
+
+      <button id="signupBtn">Sign up</button>
+      <p class="feedback" id="signupFeedback"></p>
+    </div>
+
+    <div class="card" id="confirmCard">
+      <h2>Confirm account</h2>
+      <label for="confirmUsername">Username</label>
+      <input id="confirmUsername" type="text" placeholder="Your username" autocomplete="username" />
+
+      <label for="confirmCode">Confirmation code</label>
+      <input id="confirmCode" type="text" placeholder="CODE123" />
+
+      <button id="confirmBtn">Confirm signup</button>
+      <p class="feedback" id="confirmFeedback"></p>
+    </div>
+
+    <div class="card" id="loginCard">
+      <h2>Sign in</h2>
+      <label for="loginUsername">Username</label>
+      <input id="loginUsername" type="text" placeholder="Enter username" autocomplete="username" />
+
+      <label for="loginPassword">Password</label>
+      <input id="loginPassword" type="password" placeholder="Enter password" autocomplete="current-password" />
+
+      <button id="loginBtn">Sign in</button>
+
+      <div id="mfaSection" class="stack" style="display:none;">
+        <p id="mfaHint" class="helper">Enter the verification code from your authenticator.</p>
+        <input id="otp" type="text" placeholder="One-time code" inputmode="numeric" autocomplete="one-time-code" />
+        <button id="otpSubmitBtn">Verify code</button>
+      </div>
+
+      <div class="divider"><span>or</span></div>
+      <button id="googleLoginBtn" class="secondary">Continue with Google</button>
+      <p class="feedback" id="loginFeedback"></p>
+    </div>
+  </section>
+
+  <div id="uploader" class="card" style="display:none;">
+    <h2>Upload video</h2>
+    <label for="video">Video file</label>
     <input id="video" type="file" accept="video/*" />
-    <label>Resolution</label>
+
+    <label for="resolution">Resolution</label>
     <select id="resolution">
       <option value="">-- Select Resolution --</option>
       <option value="640x360">360p</option>
       <option value="1280x720">720p</option>
       <option value="1920x1080">1080p</option>
+      <option value="1920x?">Set width only</option>
+      <option value="?x1080">Set height only</option>
     </select>
+
     <button id="uploadBtn">Upload & Convert</button>
     <progress id="uploadProgress" value="0" max="100"></progress>
     <span id="progressText">0%</span>
     <div id="status" class="result"></div>
+    <button id="uploadCloudBtn" class="secondary" style="display:none; margin-top:10px;">Upload to Cloud</button>
   </div>
 
-  <!-- UPLOAD TO CLOUDINARY -->
-  <button id="uploadCloudBtn" style="display:none; margin-top:10px;">Upload to Cloud</button>
+  <button id="adminBtn" class="adminToggle">Open admin tools</button>
 
-
-  <!-- ADMIN BUTTON -->
-  <button id="adminBtn">Admin Panel</button>
-
-  <!-- ADMIN PANEL -->
-  <div id="adminPanel">
+  <div id="adminPanel" class="card">
     <h2>Admin Panel</h2>
     <h3>CPU Usage (Live)</h3>
     <canvas id="cpuChart"></canvas>
     <h3>Conversion Logs</h3>
 
-<!-- Filters, Sort, Pagination Controls -->
-<div id="filters" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px;">
-  <label>Sort By:</label>
-  <select id="sortSelect" style="flex:1; min-width:120px; font-size:12px;">
-    <option value="startedAt:desc">Newest First</option>
-    <option value="startedAt:asc">Oldest First</option>
-    <option value="resolution:asc">Resolution ↑</option>
-    <option value="resolution:desc">Resolution ↓</option>
-  </select>
+    <div id="filters">
+      <label for="sortSelect">Sort by</label>
+      <select id="sortSelect">
+        <option value="startedAt:desc">Newest First</option>
+        <option value="startedAt:asc">Oldest First</option>
+        <option value="resolution:asc">Resolution ↑</option>
+        <option value="resolution:desc">Resolution ↓</option>
+      </select>
 
-  <label>Filter by User:</label>
-  <input id="userFilter" type="text" placeholder="User" style="flex:1; min-width:100px; font-size:12px;" />
+      <label for="userFilter">Filter by user</label>
+      <input id="userFilter" type="text" placeholder="User" />
 
+      <label for="resFilter">Filter by resolution</label>
+      <select id="resFilter">
+        <option value="">All</option>
+        <option value="640x360">360p</option>
+        <option value="1280x720">720p</option>
+        <option value="1920x1080">1080p</option>
+      </select>
 
-  <label>Filter by Resolution:</label>
-  <select id="resFilter" style="flex:1; min-width:100px; font-size:12px;">
-    <option value="">All</option>
-    <option value="640x360">360p</option>
-    <option value="1280x720">720p</option>
-    <option value="1920x1080">1080p</option>
-  </select>
+      <button id="applyFiltersBtn" class="secondary">Apply filters</button>
+    </div>
 
-   <button id="applyFiltersBtn" style="flex:0 0 auto; font-size:12px;">Apply</button>
-</div>
+    <div id="paginationControls">
+      <button id="prevPageBtn">Previous</button>
+      <span id="currentPage"></span>
+      <button id="nextPageBtn">Next</button>
+    </div>
 
-<div id="paginationControls" style="margin-top: 10px;">
-  <button id="prevPageBtn">Previous</button>
-  <span id="currentPage"></span>
-  <button id="nextPageBtn">Next</button>
-</div>
-
-<!-- Existing logs table -->
-<div id="logsTableContainer">
-  <table id="logsTable">
-    <thead>
-      <tr>
-        <th>User</th>
-        <th>Input</th>
-        <th>Output</th>
-        <th>Resolution</th>
-        <th>Started At</th>
-        <th>Completed At</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-</div>
+    <div id="logsTableContainer">
+      <table id="logsTable">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Input</th>
+            <th>Output</th>
+            <th>Resolution</th>
+            <th>Started At</th>
+            <th>Completed At</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
 
   <script>
+    const state = {
+      tokens: null,
+      user: null,
+      pendingChallenge: null
+    };
+
+    const storageKey = 'video-resizer-auth';
     let jwtToken = null;
     let cpuChart = null;
-    const cpuData = { labels: [], datasets: [{ label: 'CPU Load', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.3 }] };
+    const cpuData = {
+      labels: [],
+      datasets: [{ label: 'CPU Load', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.3 }]
+    };
     let cpuInterval = null;
 
-    const logoutBtn = document.getElementById("logoutBtn");
-    const loginForm = document.getElementById("loginForm");
-    const uploader = document.getElementById("uploader");
-    const adminBtn = document.getElementById("adminBtn");
-    const adminPanel = document.getElementById("adminPanel");
+    const userBadge = document.getElementById('userBadge');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const authSection = document.getElementById('authSection');
+    const signupFeedback = document.getElementById('signupFeedback');
+    const confirmFeedback = document.getElementById('confirmFeedback');
+    const loginFeedback = document.getElementById('loginFeedback');
+    const mfaSection = document.getElementById('mfaSection');
+    const mfaHint = document.getElementById('mfaHint');
+    const otpInput = document.getElementById('otp');
+
+    const uploader = document.getElementById('uploader');
+    const adminBtn = document.getElementById('adminBtn');
+    const adminPanel = document.getElementById('adminPanel');
     const cloudBtn = document.getElementById('uploadCloudBtn');
-    
-    // LOGIN
-    document.getElementById('loginBtn').addEventListener('click', async () => {
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
-      if (!username || !password) { alert('Enter username and password'); return; }
+
+    function setFeedback(el, message = '', variant = 'info') {
+      if (!el) return;
+      el.textContent = message;
+      el.classList.remove('info', 'success', 'error');
+      if (message) {
+        el.classList.add(variant);
+        el.style.display = 'block';
+      } else {
+        el.style.display = 'none';
+      }
+    }
+
+    function persistAuth() {
+      if (state.tokens && state.user) {
+        sessionStorage.setItem(storageKey, JSON.stringify({ tokens: state.tokens, user: state.user }));
+      } else {
+        sessionStorage.removeItem(storageKey);
+      }
+    }
+
+    function restoreAuth() {
+      const raw = sessionStorage.getItem(storageKey);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.tokens && parsed.user) {
+          state.tokens = parsed.tokens;
+          state.user = parsed.user;
+          jwtToken = state.tokens.idToken;
+        }
+      } catch (err) {
+        console.warn('Failed to restore auth state:', err);
+      }
+    }
+
+    function applyAuthState() {
+      const isAuthenticated = !!(state.tokens && state.user);
+      if (isAuthenticated) {
+        authSection.style.display = 'none';
+        uploader.style.display = 'block';
+        logoutBtn.style.display = 'inline-block';
+        userBadge.textContent = `Signed in as ${state.user.username} (${state.user.role})`;
+        userBadge.classList.add('active');
+        adminBtn.style.display = state.user.role === 'admin' ? 'block' : 'none';
+      } else {
+        authSection.style.display = 'grid';
+        uploader.style.display = 'none';
+        logoutBtn.style.display = 'none';
+        adminPanel.style.display = 'none';
+        adminBtn.style.display = 'none';
+        userBadge.textContent = 'Not signed in';
+        userBadge.classList.remove('active');
+        cloudBtn.style.display = 'none';
+        clearInterval(cpuInterval);
+        cpuInterval = null;
+      }
+    }
+
+    function completeAuthentication(tokens, user) {
+      state.tokens = tokens;
+      state.user = user;
+      jwtToken = tokens.idToken;
+      state.pendingChallenge = null;
+      setFeedback(loginFeedback, `Welcome back, ${user.username}!`, 'success');
+      mfaSection.style.display = 'none';
+      otpInput.value = '';
+      persistAuth();
+      applyAuthState();
+    }
+
+    function setPendingChallenge({ username, session, challengeName }) {
+      state.pendingChallenge = { username, session, challengeName };
+      mfaSection.style.display = 'flex';
+      mfaHint.textContent = `Additional verification required for ${username}. Enter the code from your authenticator.`;
+      otpInput.focus();
+    }
+
+    function clearPendingChallenge() {
+      state.pendingChallenge = null;
+      mfaSection.style.display = 'none';
+      otpInput.value = '';
+    }
+
+    async function handleSignup() {
+      const username = document.getElementById('signupUsername').value.trim();
+      const email = document.getElementById('signupEmail').value.trim();
+      const password = document.getElementById('signupPassword').value;
+
+      if (!username || !email || !password) {
+        setFeedback(signupFeedback, 'Please complete all fields.', 'error');
+        return;
+      }
 
       try {
-        const resp = await fetch('/login', {
+        setFeedback(signupFeedback, 'Creating account...', 'info');
+        const resp = await fetch('/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, email, password })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.details || json.error || 'Signup failed');
+        setFeedback(signupFeedback, json.message || 'Signup initiated! Check your email for the confirmation code.', 'success');
+      } catch (err) {
+        setFeedback(signupFeedback, err.message, 'error');
+      }
+    }
+
+    async function handleConfirmation() {
+      const username = document.getElementById('confirmUsername').value.trim();
+      const confirmationCode = document.getElementById('confirmCode').value.trim();
+      if (!username || !confirmationCode) {
+        setFeedback(confirmFeedback, 'Enter your username and confirmation code.', 'error');
+        return;
+      }
+
+      try {
+        setFeedback(confirmFeedback, 'Confirming...', 'info');
+        const resp = await fetch('/auth/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, confirmationCode })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.details || json.error || 'Confirmation failed');
+        setFeedback(confirmFeedback, json.message || 'User confirmed successfully.', 'success');
+      } catch (err) {
+        setFeedback(confirmFeedback, err.message, 'error');
+      }
+    }
+
+    async function handleLogin() {
+      const username = document.getElementById('loginUsername').value.trim();
+      const password = document.getElementById('loginPassword').value;
+
+      if (!username || !password) {
+        setFeedback(loginFeedback, 'Enter username and password.', 'error');
+        return;
+      }
+
+      clearPendingChallenge();
+
+      try {
+        setFeedback(loginFeedback, 'Signing in...', 'info');
+        const resp = await fetch('/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
         });
         const json = await resp.json();
-        if (!resp.ok) throw new Error(json.error || 'Login failed');
 
-        jwtToken = json.token;
-        alert('Login successful!');
-
-        loginForm.style.display = "none";
-        uploader.style.display = "block";
-        logoutBtn.style.display = "inline-block";
-
-        const payload = JSON.parse(atob(jwtToken.split('.')[1]));
-        if (payload.role === 'admin') {
-          adminBtn.style.display = 'block';
-        }
-      } catch (err) { alert('Login error: ' + (err.message || err)); }
-    });
-
-    // UPLOAD HANDLER
-    document.getElementById('uploadBtn').addEventListener('click', () => {
-        cloudBtn.style.display = "none";
-        if (!jwtToken) {
-            alert('Please login first');
-            return;
+        if (resp.status === 202) {
+          setFeedback(loginFeedback, json.message || 'Verification required. Please provide your one-time code.', 'info');
+          setPendingChallenge({ username, session: json.session, challengeName: json.challengeName });
+          return;
         }
 
-        const fileEl = document.getElementById('video');
-        const resolution = document.getElementById('resolution').value;
+        if (!resp.ok) throw new Error(json.details || json.error || 'Login failed');
+        completeAuthentication(json.tokens, json.user);
+      } catch (err) {
+        setFeedback(loginFeedback, err.message, 'error');
+      }
+    }
 
-        // Validate input
-        if (!fileEl.files.length) {
-            alert('Choose a video');
-            return;
+    async function handleOtpSubmit() {
+      if (!state.pendingChallenge) {
+        setFeedback(loginFeedback, 'No verification in progress. Sign in first.', 'error');
+        return;
+      }
+
+      const otp = otpInput.value.trim();
+      if (!otp) {
+        setFeedback(loginFeedback, 'Enter the verification code.', 'error');
+        return;
+      }
+
+      try {
+        setFeedback(loginFeedback, 'Verifying code...', 'info');
+        const resp = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: state.pendingChallenge.username,
+            otp,
+            session: state.pendingChallenge.session,
+            challengeName: state.pendingChallenge.challengeName
+          })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.details || json.error || 'Verification failed');
+        completeAuthentication(json.tokens, json.user);
+      } catch (err) {
+        setFeedback(loginFeedback, err.message, 'error');
+      }
+    }
+
+    async function startGoogleLogin() {
+      try {
+        const resp = await fetch('/auth/google');
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.details || json.error || 'Unable to initiate Google login');
+        if (json.authUrl) {
+          window.location.href = json.authUrl;
+        }
+      } catch (err) {
+        setFeedback(loginFeedback, err.message, 'error');
+      }
+    }
+
+    async function handleOAuthCallback() {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has('code') || !params.has('state')) return;
+
+      try {
+        setFeedback(loginFeedback, 'Completing federated login...', 'info');
+        const query = params.toString();
+        const resp = await fetch(`/oauth2/callback?${query}`);
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.details || json.error || 'Federated login failed');
+        completeAuthentication(json.tokens, json.user);
+      } catch (err) {
+        setFeedback(loginFeedback, err.message, 'error');
+      } finally {
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    }
+
+    function initCpuChart() {
+      const ctx = document.getElementById('cpuChart').getContext('2d');
+      cpuChart = new Chart(ctx, {
+        type: 'line',
+        data: cpuData,
+        options: { responsive: true, animation: false, scales: { y: { min: 0, max: 100, ticks: { callback: value => `${value}%` } } } }
+      });
+    }
+
+    async function fetchLogs(updateCpu = false) {
+      if (!state.tokens) return;
+      try {
+        const sort = document.getElementById('sortSelect').value;
+        const userFilter = document.getElementById('userFilter').value.trim();
+        const resolution = document.getElementById('resFilter').value;
+
+        const params = new URLSearchParams({ page: currentPage, limit, sort });
+        if (userFilter) params.set('user', userFilter);
+        if (resolution) params.set('resolution', resolution);
+
+        const resp = await fetch(`/logs?${params.toString()}`, {
+          headers: { Authorization: 'Bearer ' + state.tokens.idToken }
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+          if (resp.status === 401) {
+            const err = new Error(json.error || 'Unauthorized');
+            err.status = 401;
+            throw err;
+          }
+          throw new Error(json.error || 'Failed to fetch logs');
         }
 
-        if (!resolution) {
-            alert('Select resolution');
-            return;
+        renderLogs(json.logs || []);
+        updatePagination(json.pagination || { page: 1, totalPages: 1 });
+
+        if (updateCpu && json.cpu && json.cpu.cpuUsagePercent) {
+          cpuData.datasets[0].data = json.cpu.cpuUsagePercent.map(v => Math.round(v));
+          cpuData.labels = json.cpu.cpuUsagePercent.map((_, idx) => `CPU ${idx + 1}`);
+          if (cpuChart) cpuChart.update();
         }
-
-        // Disable inputs while uploading
-        fileEl.disabled = true;
-        document.getElementById('resolution').disabled = true;
-        document.getElementById('uploadBtn').disabled = true;
-
-        // Prepare FormData
-        const fd = new FormData();
-        fd.append('video', fileEl.files[0]);
-        fd.append('resolution', resolution);
-
-        const statusEl = document.getElementById('status');
-        const progressBar = document.getElementById('uploadProgress');
-        const progressText = document.getElementById('progressText');
-
-        // Reset progress
-        progressBar.value = 0;
-        progressText.textContent = '0%';
-        statusEl.textContent = 'Uploading...';
-
-        // Use XMLHttpRequest for upload tracking
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/convert', true);
-        xhr.setRequestHeader('Authorization', 'Bearer ' + jwtToken);
-
-        // Track upload progress
-        xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-                const percent = Math.round((event.loaded / event.total) * 100);
-                progressBar.value = percent;
-                progressText.textContent = percent + '%';
-
-                if (percent === 100) {
-                    statusEl.textContent = 'Converting... Please wait';
-                }
-            }
-        };
-
-        // Handle response
-        xhr.onload = () => {
-            // Re-enable inputs
-            fileEl.disabled = false;
-            document.getElementById('resolution').disabled = false;
-            document.getElementById('uploadBtn').disabled = false;
-
-            const statusEl = document.getElementById('status');
-
-            if (xhr.status === 200) {
-                const json = JSON.parse(xhr.responseText);
-
-                statusEl.innerHTML = `
-                    <p style="font-weight:bold; color:green;">
-                        Converted! <a href="${json.s3Url}" target="_blank" style="color:blue;">Download here</a>
-                    </p>
-                    <ul style="list-style:none; padding-left:0;">
-                        <li><strong>Codec:</strong> ${json.metadata.codec}</li>
-                        <li><strong>Bitrate:</strong> ${json.metadata.bitrate}</li>
-                    </ul>
-                `;
-                // Show Cloudinary upload button and set filename
-                cloudBtn.style.display = 'block';
-                cloudBtn.dataset.filename = json.outputFile.split('/').pop();
-                cloudBtn.disabled = false;
-                cloudBtn.textContent = 'Upload to Cloud';
-
-                // Attach click handler safely
-                cloudBtn.onclick = async () => {
-                    console.log('HIT cloud button');
-                    const filename = cloudBtn.dataset.filename;
-                    cloudBtn.disabled = true;
-                    cloudBtn.textContent = 'Uploading...';
-
-                    try {
-                        await fetchExternalVideoInfo(filename);
-                        cloudBtn.textContent = 'Uploaded!';
-                    } catch (err) {
-                        console.error(err);
-                        cloudBtn.disabled = false;
-                        cloudBtn.textContent = 'Upload to Cloud';
-                        alert('Upload failed, try again.');
-                    }
-                };
-
-            } else {
-                let errMsg = 'Upload failed';
-                try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
-                statusEl.innerHTML = `<p style="color:red; font-weight:bold;">Error: ${errMsg}</p>`;
-            }
-        };
-
-
-
-        // Handle network errors
-        xhr.onerror = () => {
-            fileEl.disabled = false;
-            document.getElementById('resolution').disabled = false;
-            document.getElementById('uploadBtn').disabled = false;
-            statusEl.textContent = 'Error: Upload failed';
-        };
-
-        // Send request
-        xhr.send(fd);
-    });
-
-    // ADMIN BUTTON TOGGLE
-    adminBtn.addEventListener('click', async () => {
-        if (adminPanel.style.display === 'block') {
-            // Hide panel
-            adminPanel.style.display = 'none';
-            // Optional: stop interval
-            if (cpuInterval) {
-                clearInterval(cpuInterval);
-                cpuInterval = null;
-            }
-        } else {
-            // Show panel
-            adminPanel.style.display = 'block';
-            await fetchLogs(true); // initial logs + CPU
-            if (!cpuChart) initCpuChart();
-            if (!cpuInterval) cpuInterval = setInterval(updateCpuChart, 5000);
+      } catch (err) {
+        console.error('Error fetching logs:', err);
+        if (err.status === 401) {
+          logout();
         }
-    });
+      }
+    }
+
+    function renderLogs(logs) {
+      const tbody = document.querySelector('#logsTable tbody');
+      tbody.innerHTML = '';
+      logs
+        .filter(log => log && log.user && log.input && log.output)
+        .forEach(log => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${log.user}</td>
+            <td>${log.input}</td>
+            <td>${log.output}</td>
+            <td>${log.resolution || ''}</td>
+            <td>${log.startedAt ? new Date(log.startedAt).toLocaleString() : ''}</td>
+            <td>${log.completedAt ? new Date(log.completedAt).toLocaleString() : ''}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+    }
+
+    function updatePagination(pagination) {
+      const pageInfo = document.getElementById('currentPage');
+      pageInfo.textContent = `Page ${pagination.page || 1} of ${pagination.totalPages || 1}`;
+      document.getElementById('prevPageBtn').disabled = (pagination.page || 1) <= 1;
+      document.getElementById('nextPageBtn').disabled = (pagination.page || 1) >= (pagination.totalPages || 1);
+    }
+
+    async function updateCpuChart() {
+      if (!state.tokens) return;
+      try {
+        const resp = await fetch('/logs', { headers: { Authorization: 'Bearer ' + state.tokens.idToken } });
+        if (resp.status === 401) {
+          logout();
+          return;
+        }
+        const json = await resp.json();
+        if (!resp.ok || !json.cpu || !json.cpu.cpuUsagePercent) return;
+        const now = new Date().toLocaleTimeString();
+        cpuData.labels.push(now);
+        cpuData.datasets[0].data.push(Math.round(json.cpu.cpuUsagePercent[0] || 0));
+        if (cpuData.labels.length > 20) {
+          cpuData.labels.shift();
+          cpuData.datasets[0].data.shift();
+        }
+        if (cpuChart) cpuChart.update();
+      } catch (err) {
+        console.error('CPU chart update error:', err);
+      }
+    }
+
+    function logout() {
+      state.tokens = null;
+      state.user = null;
+      jwtToken = null;
+      clearPendingChallenge();
+      persistAuth();
+      applyAuthState();
+      setFeedback(loginFeedback, 'You have been logged out.', 'info');
+      const tbody = document.querySelector('#logsTable tbody');
+      tbody.innerHTML = '';
+    }
+
+    document.getElementById('signupBtn').addEventListener('click', handleSignup);
+    document.getElementById('confirmBtn').addEventListener('click', handleConfirmation);
+    document.getElementById('loginBtn').addEventListener('click', handleLogin);
+    document.getElementById('otpSubmitBtn').addEventListener('click', handleOtpSubmit);
+    document.getElementById('googleLoginBtn').addEventListener('click', startGoogleLogin);
+    logoutBtn.addEventListener('click', logout);
 
     let currentPage = 1;
     let limit = 10;
 
-    // FETCH LOGS
-async function fetchLogs(updateCpu = false) {
-  try {
-    const sort = document.getElementById("sortSelect").value;
-    const user = document.getElementById("userFilter").value;
-    const resolution = document.getElementById("resFilter").value;
-
-    const resp = await fetch(`/logs?page=${currentPage}&limit=${limit}&sort=${sort}&user=${user}&resolution=${resolution}`, {
-      headers: { 'Authorization': 'Bearer ' + jwtToken }
+    document.getElementById('prevPageBtn').addEventListener('click', () => {
+      currentPage = Math.max(1, currentPage - 1);
+      fetchLogs(false);
     });
 
-    const json = await resp.json();
-    if (!resp.ok) throw new Error(json.error || 'Failed to fetch logs');
-    
-    // --- Render Logs Table ---
-    const tbody = document.querySelector('#logsTable tbody');
-    tbody.innerHTML = '';
-
-    // Only include entries that have a user and input/output (i.e., real conversion logs)
-    json.logs
-      .filter(log => log.user && log.input && log.output)
-      .forEach(log => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${log.user}</td>
-          <td>${log.input}</td>
-          <td>${log.output}</td>
-          <td>${log.resolution || ''}</td>
-          <td>${log.startedAt ? new Date(log.startedAt).toLocaleString() : ''}</td>
-          <td>${log.completedAt ? new Date(log.completedAt).toLocaleString() : ''}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-
-    // --- Update Pagination ---
-    updatePagination(json.pagination);
-
-    // --- Update CPU chart ---
-    if (updateCpu && json.cpu && json.cpu.cpuUsagePercent) {
-        cpuData.datasets[0].data = json.cpu.cpuUsagePercent;
-        cpuData.labels = [new Date().toLocaleTimeString()];
-        if (cpuChart) cpuChart.update();
-    }
-
-  } catch (err) {
-    console.error('Error fetching logs:', err);
-  }
-}
-
-
-    function updatePagination(pagination) {
-        const pageInfo = document.getElementById("currentPage");
-        pageInfo.textContent = `Page ${pagination.page} of ${pagination.totalPages}`;
-        document.getElementById("prevPageBtn").disabled = pagination.page === 1;
-        document.getElementById("nextPageBtn").disabled = pagination.page === pagination.totalPages;
-    }
-
-    document.getElementById("prevPageBtn").addEventListener("click", () => {
-        currentPage--;
-        fetchLogs(false);
-    });
-    document.getElementById("nextPageBtn").addEventListener("click", () => {
-        currentPage++;
-        fetchLogs(false);
-    });
-    document.getElementById("applyFiltersBtn").addEventListener("click", () => {
-        currentPage = 1;
-        fetchLogs(false);
+    document.getElementById('nextPageBtn').addEventListener('click', () => {
+      currentPage += 1;
+      fetchLogs(false);
     });
 
+    document.getElementById('applyFiltersBtn').addEventListener('click', () => {
+      currentPage = 1;
+      fetchLogs(true);
+    });
 
+    adminBtn.addEventListener('click', async () => {
+      if (!state.tokens || state.user.role !== 'admin') return;
+      if (adminPanel.style.display === 'block') {
+        adminPanel.style.display = 'none';
+        clearInterval(cpuInterval);
+        cpuInterval = null;
+      } else {
+        adminPanel.style.display = 'block';
+        await fetchLogs(true);
+        if (!cpuChart) initCpuChart();
+        if (!cpuInterval) cpuInterval = setInterval(updateCpuChart, 5000);
+      }
+    });
 
-    // CPU CHART INIT
-    function initCpuChart() {
-      const ctx = document.getElementById('cpuChart').getContext('2d');
-      cpuChart = new Chart(ctx, { type: 'line', data: cpuData, options: { responsive:true, animation:false, scales:{ y:{ min:0 } } } });
-    }
+    document.getElementById('uploadBtn').addEventListener('click', () => {
+      if (!state.tokens) {
+        setFeedback(loginFeedback, 'Please sign in before uploading.', 'error');
+        return;
+      }
 
-    async function updateCpuChart() {
-    try {
-        const resp = await fetch('/logs', { headers: { 'Authorization': 'Bearer ' + jwtToken } });
-        const json = await resp.json();
-        if (!json.cpu || !json.cpu.cpuUsagePercent) return;
+      cloudBtn.style.display = 'none';
+      const fileEl = document.getElementById('video');
+      const resolution = document.getElementById('resolution').value;
 
-        const now = new Date().toLocaleTimeString();
-        cpuData.labels.push(now);
-        cpuData.datasets[0].data.push(json.cpu.cpuUsagePercent[0]); // <- fixed
+      if (!fileEl.files.length) {
+        alert('Choose a video file first.');
+        return;
+      }
 
-        if (cpuData.labels.length > 20) {
-        cpuData.labels.shift();
-        cpuData.datasets[0].data.shift();
+      if (!resolution) {
+        alert('Select a resolution preset or custom option.');
+        return;
+      }
+
+      fileEl.disabled = true;
+      document.getElementById('resolution').disabled = true;
+      document.getElementById('uploadBtn').disabled = true;
+
+      const fd = new FormData();
+      fd.append('video', fileEl.files[0]);
+      fd.append('resolution', resolution);
+
+      const statusEl = document.getElementById('status');
+      const progressBar = document.getElementById('uploadProgress');
+      const progressText = document.getElementById('progressText');
+      progressBar.value = 0;
+      progressText.textContent = '0%';
+      statusEl.textContent = 'Uploading...';
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/convert', true);
+      xhr.setRequestHeader('Authorization', 'Bearer ' + state.tokens.idToken);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          progressBar.value = percent;
+          progressText.textContent = percent + '%';
+          if (percent === 100) statusEl.textContent = 'Converting... please wait';
         }
-        cpuChart.update();
-    } catch(err) {
-        console.error('CPU chart update error:', err);
-    }
-    }
+      };
 
+      xhr.onload = () => {
+        fileEl.disabled = false;
+        document.getElementById('resolution').disabled = false;
+        document.getElementById('uploadBtn').disabled = false;
 
-    // LOGOUT
-    logoutBtn.addEventListener("click", () => {
-      jwtToken = null;
-      uploader.style.display = "none";
-      adminBtn.style.display = "none";
-      adminPanel.style.display = "none";
-      loginForm.style.display = "block";
-      logoutBtn.style.display = "none";
-      document.getElementById("video").value = "";
-      document.getElementById("resolution").value = "";
-      document.getElementById("uploadProgress").value = 0;
-      document.getElementById("progressText").textContent = "0%";
-      alert("You have been logged out successfully!");
+        if (xhr.status === 200) {
+          try {
+            const json = JSON.parse(xhr.responseText);
+            const codec = json.metadata && json.metadata.codec ? `<li><strong>Codec:</strong> ${json.metadata.codec}</li>` : '';
+            const bitrate = json.metadata && json.metadata.bitrate ? `<li><strong>Bitrate:</strong> ${json.metadata.bitrate}</li>` : '';
+            statusEl.innerHTML = `
+              <p class="success-text">
+                Converted! <a href="${json.s3Url}" target="_blank">Download here</a>
+              </p>
+              <ul class="details">${codec}${bitrate}</ul>
+            `;
+            if (json.outputFile) {
+              cloudBtn.style.display = 'inline-flex';
+              cloudBtn.disabled = false;
+              cloudBtn.textContent = 'Upload to Cloud';
+              cloudBtn.dataset.filename = json.outputFile;
+            }
+          } catch (err) {
+            statusEl.textContent = 'Converted successfully, but failed to parse response.';
+          }
+        } else {
+          let errMsg = 'Upload failed';
+          try {
+            errMsg = JSON.parse(xhr.responseText).error || errMsg;
+          } catch {}
+          statusEl.innerHTML = `<p class="error-text">Error: ${errMsg}</p>`;
+        }
+      };
+
+      xhr.onerror = () => {
+        fileEl.disabled = false;
+        document.getElementById('resolution').disabled = false;
+        document.getElementById('uploadBtn').disabled = false;
+        statusEl.textContent = 'Network error: upload failed';
+      };
+
+      xhr.send(fd);
     });
 
-    // Use Cloudinary API to fetch thumbnail and and extra meta data
-    async function fetchExternalVideoInfo(filename) {
-      console.log('Calling Cloudinary upload for file:', filename);
+    cloudBtn.addEventListener('click', async () => {
+      if (!state.tokens) {
+        alert('Please sign in first.');
+        return;
+      }
+
+      const filename = cloudBtn.dataset.filename;
+      if (!filename) return;
+
+      cloudBtn.disabled = true;
+      cloudBtn.textContent = 'Uploading...';
       try {
         const resp = await fetch('/upload-external', {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + jwtToken 
+            Authorization: 'Bearer ' + state.tokens.idToken
           },
           body: JSON.stringify({ filename })
         });
-        console.log('Fetch status:', resp.status); 
-
         const json = await resp.json();
-        if (!resp.ok) throw new Error(json.error || 'Failed');
+        if (!resp.ok) throw new Error(json.details || json.error || 'Upload failed');
 
         const statusEl = document.getElementById('status');
+        const meta = json.metadata || {};
         statusEl.innerHTML += `
-          <h4>External Info (Cloudinary)</h4>
-          <ul style="list-style:none; padding-left:0;">
-            <li><strong>Format:</strong> ${json.metadata.format}</li>
-            <li><strong>Duration:</strong> ${json.metadata.duration} sec</li>
-            <li><strong>Resolution:</strong> ${json.metadata.width}x${json.metadata.height}</li>
+          <h4>Cloudinary</h4>
+          <ul class="details">
+            <li><strong>URL:</strong> <a href="${json.url}" target="_blank">View asset</a></li>
+            <li><strong>Format:</strong> ${meta.format || 'n/a'}</li>
+            <li><strong>Duration:</strong> ${meta.duration || 'n/a'} sec</li>
+            <li><strong>Resolution:</strong> ${meta.width || 'n/a'} x ${meta.height || 'n/a'}</li>
           </ul>
         `;
-
+        cloudBtn.textContent = 'Uploaded!';
       } catch (err) {
         console.error(err);
+        alert(err.message || 'Upload failed, try again.');
+        cloudBtn.disabled = false;
+        cloudBtn.textContent = 'Upload to Cloud';
       }
-    }
+    });
 
+    restoreAuth();
+    applyAuthState();
+    handleOAuthCallback();
+
+    if (state.tokens && state.user && state.user.role === 'admin') {
+      fetchLogs(true);
+      if (!cpuChart) initCpuChart();
+      if (!cpuInterval) cpuInterval = setInterval(updateCpuChart, 5000);
+    }
   </script>
 </body>
 </html>
