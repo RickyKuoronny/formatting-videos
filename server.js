@@ -26,7 +26,7 @@ const {
   initiateAuthFlow,
   respondToChallenge,
   verifyIdToken,
-  cognitoClientConfig
+  getCognitoClientConfig
 } = require('./backend/cognito');
 
 const app = express();
@@ -45,6 +45,7 @@ let oidcClientPromise;
 
 app.use(express.json()); // for parsing JSON bodies
 
+app.set('trust proxy', true);
 
 loadSecrets()
   .then(() => {
@@ -61,9 +62,6 @@ loadSecrets()
   });
 
 // Use Cognito values
-const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN;
-const COGNITO_REDIRECT_URI = process.env.COGNITO_REDIRECT_URI;
-
 // Start server
 const PORT = process.env.PORT || 3000;
 
@@ -105,17 +103,27 @@ function pruneOauthStates() {
 
 async function getOidcClient() {
   if (!oidcClientPromise) {
-    if (!COGNITO_DOMAIN || !cognitoClientConfig.clientId || !COGNITO_REDIRECT_URI) {
-      throw new Error('Federated login is not configured correctly.');
-    }
+    oidcClientPromise = (async () => {
+  const config = await getCognitoClientConfig();
+  const domain = (config.cognitoDomain || process.env.COGNITO_DOMAIN || '').replace(/\/$/, '');
+  const redirectUri = config.redirectUri || process.env.COGNITO_REDIRECT_URI;
 
-    const issuerUrl = `${COGNITO_DOMAIN.replace(/\/$/, '')}/.well-known/openid-configuration`;
-    oidcClientPromise = Issuer.discover(issuerUrl).then((issuer) => new issuer.Client({
-      client_id: cognitoClientConfig.clientId,
-      client_secret: cognitoClientConfig.clientSecret,
-      redirect_uris: [COGNITO_REDIRECT_URI],
-      response_types: ['code']
-    }));
+      if (!domain || !config.clientId || !redirectUri) {
+        throw new Error('Federated login is not configured correctly.');
+      }
+
+      const issuerUrl = `${domain}/.well-known/openid-configuration`;
+      const issuer = await Issuer.discover(issuerUrl);
+      return new issuer.Client({
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        redirect_uris: [redirectUri],
+        response_types: ['code']
+      });
+    })().catch(err => {
+      oidcClientPromise = undefined;
+      throw err;
+    });
   }
 
   return oidcClientPromise;
@@ -333,24 +341,33 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
-app.get('/auth/google', (req, res) => {
-  if (!COGNITO_DOMAIN || !cognitoClientConfig.clientId || !COGNITO_REDIRECT_URI) {
-    return res.status(500).json({ error: 'Federated login is not configured correctly.' });
+app.get('/auth/google', async (req, res) => {
+  try {
+  const config = await getCognitoClientConfig();
+  const domain = (config.cognitoDomain || process.env.COGNITO_DOMAIN || '').replace(/\/$/, '');
+  const redirectUri = config.redirectUri || process.env.COGNITO_REDIRECT_URI;
+
+    if (!domain || !config.clientId || !redirectUri) {
+      return res.status(500).json({ error: 'Federated login is not configured correctly.' });
+    }
+
+    pruneOauthStates();
+    const state = crypto.randomBytes(16).toString('hex');
+    oauthStates.set(state, Date.now());
+
+    const authorizeUrl = new URL(`${domain}/oauth2/authorize`);
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('client_id', config.clientId);
+    authorizeUrl.searchParams.set('redirect_uri', redirectUri);
+    authorizeUrl.searchParams.set('scope', 'openid email profile');
+    authorizeUrl.searchParams.set('identity_provider', 'Google');
+    authorizeUrl.searchParams.set('state', state);
+
+    res.json({ authUrl: authorizeUrl.toString(), state });
+  } catch (error) {
+    console.error('Failed to initiate federated login:', error);
+    res.status(500).json({ error: 'Federated login is not configured correctly.' });
   }
-
-  pruneOauthStates();
-  const state = crypto.randomBytes(16).toString('hex');
-  oauthStates.set(state, Date.now());
-
-  const authorizeUrl = new URL(`${COGNITO_DOMAIN.replace(/\/$/, '')}/oauth2/authorize`);
-  authorizeUrl.searchParams.set('response_type', 'code');
-  authorizeUrl.searchParams.set('client_id', cognitoClientConfig.clientId);
-  authorizeUrl.searchParams.set('redirect_uri', COGNITO_REDIRECT_URI);
-  authorizeUrl.searchParams.set('scope', 'openid email profile');
-  authorizeUrl.searchParams.set('identity_provider', 'Google');
-  authorizeUrl.searchParams.set('state', state);
-
-  res.json({ authUrl: authorizeUrl.toString(), state });
 });
 
 app.get('/oauth2/callback', async (req, res) => {
@@ -370,13 +387,17 @@ app.get('/oauth2/callback', async (req, res) => {
   }
   oauthStates.delete(state);
 
-  if (!COGNITO_DOMAIN || !cognitoClientConfig.clientId || !COGNITO_REDIRECT_URI) {
-    return res.status(500).json({ error: 'Federated login is not configured correctly.' });
-  }
-
   try {
+  const config = await getCognitoClientConfig();
+  const domain = (config.cognitoDomain || process.env.COGNITO_DOMAIN || '').replace(/\/$/, '');
+  const redirectUri = config.redirectUri || process.env.COGNITO_REDIRECT_URI;
+
+    if (!domain || !config.clientId || !redirectUri) {
+      return res.status(500).json({ error: 'Federated login is not configured correctly.' });
+    }
+
     const client = await getOidcClient();
-    const tokenSet = await client.callback(COGNITO_REDIRECT_URI, { code, state }, { state });
+    const tokenSet = await client.callback(redirectUri, { code, state }, { state });
     const payload = await verifyIdToken(tokenSet.id_token);
     const user = normalizeUserFromToken(payload);
 
