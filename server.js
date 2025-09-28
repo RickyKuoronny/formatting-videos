@@ -183,8 +183,6 @@ function buildScaleArg(res) {
 app.post('/convert', authenticateToken, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-
-
   const resolution = (req.body.resolution || '').trim();
   const scaleArg = buildScaleArg(resolution);
   const outName = path.basename(req.file.originalname, path.extname(req.file.originalname)) + '-converted.mp4';
@@ -217,9 +215,6 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
   // Handle stdin errors (ignore EPIPE)
   ff.stdin.on('error', err => { if (err.code !== 'EPIPE') console.error('FFmpeg stdin error:', err); });
 
-
-
-
   // Pipe uploaded buffer to FFmpeg stdin
   const bufferStream = Readable.from(req.file.buffer);
   pipeline(bufferStream, ff.stdin, err => {
@@ -235,16 +230,6 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
   // Handle FFmpeg close
   ff.on('close', async code => {
     const completedAt = new Date().toISOString();
-
-
-
-
-
-
-
-
-
-
     const logEntry = {
       input: req.file.originalname,
       output: outName,
