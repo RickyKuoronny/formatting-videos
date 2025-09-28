@@ -1,4 +1,4 @@
-require('dotenv').config();
+// require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const multer = require('multer');
@@ -14,6 +14,8 @@ const { Issuer } = require('openid-client');
 
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
 const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
+const { loadSecrets } = require('./backend/secrets');
+
 const {
   signUpUser,
   confirmUser,
@@ -33,21 +35,34 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const PORT = process.env.PORT || 3000;
-const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN;
-const COGNITO_REDIRECT_URI = process.env.COGNITO_REDIRECT_URI;
-
 const OAUTH_STATE_TTL = 5 * 60 * 1000; // 5 minutes
 const oauthStates = new Map();
 let oidcClientPromise;
 
 app.use(express.json()); // for parsing JSON bodies
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
+
+loadSecrets()
+  .then(() => {
+    // Configure Cloudinary with loaded secrets
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET
+    });
+
+    // Start server
+    const port = process.env.PORT || 3000;
+    app.listen(port, () => console.log(`Server running on port ${port}`));
+  })
+  .catch(err => {
+    console.error("Failed to load secrets:", err);
+    process.exit(1);
+  });
+
+// Use Cognito values
+const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN;
+const COGNITO_REDIRECT_URI = process.env.COGNITO_REDIRECT_URI;
 
 const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 
