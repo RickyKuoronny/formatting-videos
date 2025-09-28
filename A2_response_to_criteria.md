@@ -98,31 +98,39 @@ Users can also retrieve processed videos via a REST API.
 ### Core - Authentication with Cognito
 
 - **User pool name:** A2_n11036583_userpool 
-- **How are authentication tokens handled by the client?:** [eg. Response to login request sets a cookie containing the token.]
+- **How are authentication tokens handled by the client?:** Tokens are returned in the response to login requests and stored in sessionStorage. The client includes the idToken as a Bearer token in the Authorization header for subsequent API requests.
 - **Video timestamp:**
 - **Relevant files:**
-    -
+    - /backend/cognito.js
+    - server.js 
+    - /public/index.html
 
 ### Cognito multi-factor authentication
 
 - **What factors are used for authentication:** Email One Time Code, and Password
 - **Video timestamp:**
 - **Relevant files:**
-    -
+    - /backend/cognito.js
+    - server.js 
+    - /public/index.html
 
 ### Cognito federated identities
 
 - **Identity providers used:** Google
 - **Video timestamp:**
 - **Relevant files:**
-    -
+    - /backend/cognito.js
+    - server.js 
+    - /public/index.html
 
 ### Cognito groups
 
-- **How are groups used to set permissions?:** `user` can use the format video application and `admin` can see the logs and cpu usage
+- **How are groups used to set permissions?:** Users in the user group can upload and convert videos, whereas users in the admin group can view conversion logs and CPU usage. Group membership is checked in JWT payload after login.
 - **Video timestamp:**
 - **Relevant files:**
-    -
+    - /backend/cognito.js
+    - server.js 
+    - /public/index.html
 
 ### Core - DNS with Route53
 
@@ -131,17 +139,19 @@ Users can also retrieve processed videos via a REST API.
 
 ### Parameter store
 
-- **Parameter names:** 
+- **Parameter names:** /n10666630/base_url
 - **Video timestamp:**
 - **Relevant files:**
-    -
+    - paramStore.js
+    - server.js
 
 ### Secrets manager
 
-- **Secrets names:** 
+- **Secrets names:** CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, JWT_SECRET, PORT, REGION, COGNITO_ISSUER COGNITO_REDIRECT_URI, COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_CLIENT_SECRET,COGNITO_DOMAIN
 - **Video timestamp:**
 - **Relevant files:**
-    -
+    - secrets.js
+    - server.js
 
 ### Infrastructure as code
 
