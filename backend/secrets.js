@@ -1,4 +1,4 @@
-import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client-secrets-manager");
 
 async function loadSecrets() {
   const client = new SecretsManagerClient({ region: "ap-southeast-2" }); // match your secret's region
@@ -15,4 +15,4 @@ async function loadSecrets() {
   return secrets;
 }
 
-module.exports = { loadSecrets };   
+module.exports = { loadSecrets };
