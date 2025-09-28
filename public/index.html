@@ -117,33 +117,55 @@
     const adminPanel = document.getElementById("adminPanel");
     const cloudBtn = document.getElementById('uploadCloudBtn');
     
+    // Hide admin button & logout initially
+    adminBtn.style.display = "none";
+    logoutBtn.style.display = "none";
+    uploader.style.display = "none";
+
     // LOGIN
     document.getElementById('loginBtn').addEventListener('click', async () => {
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
-      if (!username || !password) { alert('Enter username and password'); return; }
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      if (!username || !password) {
+        alert('Enter username and password');
+        return;
+      }
 
       try {
-        const resp = await fetch('/login', {
+        const resp = await fetch('/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
         });
+
         const json = await resp.json();
         if (!resp.ok) throw new Error(json.error || 'Login failed');
 
-        jwtToken = json.token;
-        alert('Login successful!');
+        // Cognito returns tokens object
+        jwtToken = json.tokens.idToken;
 
+        // Decode token to get user info
+        const payload = JSON.parse(atob(jwtToken.split('.')[1]));
+
+        // Update UI
         loginForm.style.display = "none";
         uploader.style.display = "block";
         logoutBtn.style.display = "inline-block";
 
-        const payload = JSON.parse(atob(jwtToken.split('.')[1]));
+        statusEl.textContent = `Logged in as: ${payload.username || payload.email}`;
+
+        // Show admin button only if user role is admin
         if (payload.role === 'admin') {
-          adminBtn.style.display = 'block';
+          adminBtn.style.display = 'inline-block';
+        } else {
+          adminBtn.style.display = 'none';
         }
-      } catch (err) { alert('Login error: ' + (err.message || err)); }
+
+        alert('Login successful!');
+      } catch (err) {
+        console.error('Login error:', err);
+        alert('Login failed: ' + (err.message || 'Unknown error'));
+      }
     });
 
     // UPLOAD HANDLER
@@ -397,9 +419,9 @@ async function fetchLogs(updateCpu = false) {
       jwtToken = null;
       uploader.style.display = "none";
       adminBtn.style.display = "none";
-      adminPanel.style.display = "none";
       loginForm.style.display = "block";
       logoutBtn.style.display = "none";
+      statusEl.textContent = '';
       document.getElementById("video").value = "";
       document.getElementById("resolution").value = "";
       document.getElementById("uploadProgress").value = 0;
