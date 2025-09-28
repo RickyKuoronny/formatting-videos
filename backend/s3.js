@@ -4,6 +4,7 @@ const fs = require('fs');
 const { 
     S3Client, 
     GetObjectCommand, 
+    PutObjectCommand,
     CreateBucketCommand, 
     HeadBucketCommand, 
     PutBucketTaggingCommand 
@@ -95,4 +96,15 @@ async function getPresignedUrl(key, expiresIn = 3600) {
     return await getSignedUrl(s3Client, command, { expiresIn });
 }
 
-module.exports = { uploadFile, getPresignedUrl };
+// Pre-signed URL for client upload
+async function getPresignedUploadUrl(key, contentType = 'video/mp4', expiresIn = 3600) {
+    await ensureBucket();
+    const command = new PutObjectCommand({
+        Bucket: bucketName,
+        Key: key,
+        ContentType: contentType
+    });
+    return await getSignedUrl(s3Client, command, { expiresIn });
+}
+
+module.exports = { uploadFile, getPresignedUrl, getPresignedUploadUrl, bucketName, s3Client };
