@@ -1,5 +1,3 @@
-// s3.js
-require('dotenv').config();
 const fs = require('fs');
 const { 
     S3Client, 

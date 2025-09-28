@@ -1,4 +1,3 @@
-// require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const multer = require('multer');
@@ -59,6 +58,7 @@ loadSecrets()
 // Use Cognito values
 const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN;
 const COGNITO_REDIRECT_URI = process.env.COGNITO_REDIRECT_URI;
+
 // Start server
 const PORT = process.env.PORT || 3000;
 

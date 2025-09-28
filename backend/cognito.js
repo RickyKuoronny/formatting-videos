@@ -1,20 +1,57 @@
-const {
-  CognitoIdentityProviderClient,
-  SignUpCommand,
+const { loadSecrets } = require('./secrets');
+const { 
+  CognitoIdentityProviderClient, 
+  SignUpCommand, 
   ConfirmSignUpCommand,
   InitiateAuthCommand,
   RespondToAuthChallengeCommand
 } = require('@aws-sdk/client-cognito-identity-provider');
 const { CognitoJwtVerifier } = require('aws-jwt-verify');
 const crypto = require('crypto');
+const cloudinary = require('cloudinary').v2;
 
-const region = process.env.REGION;
-const clientId = process.env.COGNITO_CLIENT_ID;
-const clientSecret = process.env.COGNITO_CLIENT_SECRET;
-const userPoolId = process.env.COGNITO_USER_POOL_ID;
+let initialized = false;
+let cognitoClient;
+let clientId, clientSecret, userPoolId, region;
+let idTokenVerifier;
 
-const cognitoClient = new CognitoIdentityProviderClient({ region });
+// Helper to lazy-initialize
+async function init() {
+  if (initialized) return;
+  await loadSecrets();
 
+  // Cloudinary config
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+
+  region = process.env.REGION;
+  clientId = process.env.COGNITO_CLIENT_ID;
+  clientSecret = process.env.COGNITO_CLIENT_SECRET;
+  userPoolId = process.env.COGNITO_USER_POOL_ID;
+
+  cognitoClient = new CognitoIdentityProviderClient({ region });
+
+  idTokenVerifier = CognitoJwtVerifier.create({
+    userPoolId,
+    clientId,
+    tokenUse: 'id'
+  });
+
+  initialized = true;
+}
+
+// Wrap any function to ensure init is called first
+function withInit(fn) {
+  return async (...args) => {
+    await init();
+    return fn(...args);
+  };
+}
+
+// --- Cognito helpers ---
 function secretHash(username) {
   if (!clientSecret) return undefined;
   const hasher = crypto.createHmac('sha256', clientSecret);
@@ -22,84 +59,43 @@ function secretHash(username) {
   return hasher.digest('base64');
 }
 
-async function signUpUser({ username, password, email }) {
-  const params = {
-    ClientId: clientId,
-    Username: username,
-    Password: password,
-    UserAttributes: [{ Name: 'email', Value: email }]
-  };
-
+async function _signUpUser({ username, password, email }) {
+  const params = { ClientId: clientId, Username: username, Password: password, UserAttributes: [{ Name: 'email', Value: email }] };
   const hash = secretHash(username);
-  if (hash) {
-    params.SecretHash = hash;
-  }
-
+  if (hash) params.SecretHash = hash;
   return cognitoClient.send(new SignUpCommand(params));
 }
 
-async function confirmUser({ username, confirmationCode }) {
-  const params = {
-    ClientId: clientId,
-    Username: username,
-    ConfirmationCode: confirmationCode
-  };
-
+async function _confirmUser({ username, confirmationCode }) {
+  const params = { ClientId: clientId, Username: username, ConfirmationCode: confirmationCode };
   const hash = secretHash(username);
-  if (hash) {
-    params.SecretHash = hash;
-  }
-
+  if (hash) params.SecretHash = hash;
   return cognitoClient.send(new ConfirmSignUpCommand(params));
 }
 
-async function initiateAuthFlow({ username, password }) {
-  const authParameters = {
-    USERNAME: username,
-    PASSWORD: password
-  };
-
+async function _initiateAuthFlow({ username, password }) {
+  const authParams = { USERNAME: username, PASSWORD: password };
   const hash = secretHash(username);
-  if (hash) {
-    authParameters.SECRET_HASH = hash;
-  }
+  if (hash) authParams.SECRET_HASH = hash;
 
-  const params = {
+  return cognitoClient.send(new InitiateAuthCommand({
     AuthFlow: 'USER_PASSWORD_AUTH',
     ClientId: clientId,
-    AuthParameters: authParameters
-  };
-
-  return cognitoClient.send(new InitiateAuthCommand(params));
+    AuthParameters: authParams
+  }));
 }
 
-async function respondToChallenge({ username, session, challengeName, otp }) {
-  const challengeResponses = {
-    USERNAME: username
-  };
-
+async function _respondToChallenge({ username, session, challengeName, otp }) {
+  const challengeResponses = { USERNAME: username };
   const hash = secretHash(username);
-  if (hash) {
-    challengeResponses.SECRET_HASH = hash;
-  }
+  if (hash) challengeResponses.SECRET_HASH = hash;
 
   switch (challengeName) {
-    case 'SMS_MFA':
-      challengeResponses.SMS_MFA_CODE = otp;
-      break;
-    case 'SOFTWARE_TOKEN_MFA':
-      challengeResponses.SOFTWARE_TOKEN_MFA_CODE = otp;
-      break;
+    case 'SMS_MFA': challengeResponses.SMS_MFA_CODE = otp; break;
+    case 'SOFTWARE_TOKEN_MFA': challengeResponses.SOFTWARE_TOKEN_MFA_CODE = otp; break;
     case 'EMAIL_OTP':
-    case 'EMAIL_OTP_MULTI_FACTOR_AUTH':
-      challengeResponses.EMAIL_OTP_CODE = otp;
-      break;
-    case 'CUSTOM_CHALLENGE':
-      challengeResponses.ANSWER = otp;
-      break;
-    default:
-      challengeResponses.ANSWER = otp;
-      break;
+    case 'EMAIL_OTP_MULTI_FACTOR_AUTH': challengeResponses.EMAIL_OTP_CODE = otp; break;
+    default: challengeResponses.ANSWER = otp; break;
   }
 
   return cognitoClient.send(new RespondToAuthChallengeCommand({
@@ -110,27 +106,16 @@ async function respondToChallenge({ username, session, challengeName, otp }) {
   }));
 }
 
-const idTokenVerifier = CognitoJwtVerifier.create({
-  userPoolId,
-  clientId,
-  tokenUse: 'id'
-});
-
-async function verifyIdToken(token) {
+async function _verifyIdToken(token) {
   return idTokenVerifier.verify(token);
 }
 
+// Export functions wrapped with init
 module.exports = {
-  signUpUser,
-  confirmUser,
-  initiateAuthFlow,
-  respondToChallenge,
-  verifyIdToken,
-  secretHash,
-  cognitoClientConfig: {
-    region,
-    clientId,
-    clientSecret,
-    userPoolId
-  }
+  signUpUser: withInit(_signUpUser),
+  confirmUser: withInit(_confirmUser),
+  initiateAuthFlow: withInit(_initiateAuthFlow),
+  respondToChallenge: withInit(_respondToChallenge),
+  verifyIdToken: withInit(_verifyIdToken),
+  secretHash: withInit(secretHash) // optional, rarely used outside
 };
