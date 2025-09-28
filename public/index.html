@@ -12,16 +12,16 @@
   <h1>Video Resizer</h1>
 
   <!-- LOGOUT -->
-  <button id="logoutBtn">Logout</button>
+  <button id="logoutBtn" style="display:none;">Logout</button>
 
   <!-- LOGIN -->
   <div id="loginForm">
-    <h2>Login</h2>
-    <label>Username</label>
-    <input id="username" type="text" placeholder="Enter username" />
-    <label>Password</label>
-    <input id="password" type="password" placeholder="Enter password" />
-    <button id="loginBtn">Login</button>
+    <h2>Sign in</h2>
+    <p style="max-width:420px;">Use the hosted Cognito experience to sign in with email-based MFA or continue with Google using federated identities.</p>
+    <div class="login-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button id="loginCognitoBtn">Login with Cognito</button>
+      <button id="loginGoogleBtn">Login with Google</button>
+    </div>
   </div>
 
   <!-- UPLOADER (Hidden Initially) -->
@@ -47,7 +47,7 @@
 
 
   <!-- ADMIN BUTTON -->
-  <button id="adminBtn">Admin Panel</button>
+  <button id="adminBtn" style="display:none;">Admin Panel</button>
 
   <!-- ADMIN PANEL -->
   <div id="adminPanel">
@@ -106,45 +106,110 @@
 
   <script>
     let jwtToken = null;
+    let accessToken = null;
+    let refreshToken = null;
+    let userProfile = null;
     let cpuChart = null;
     const cpuData = { labels: [], datasets: [{ label: 'CPU Load', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.3 }] };
     let cpuInterval = null;
 
     const logoutBtn = document.getElementById("logoutBtn");
     const loginForm = document.getElementById("loginForm");
+    const loginCognitoBtn = document.getElementById('loginCognitoBtn');
+    const loginGoogleBtn = document.getElementById('loginGoogleBtn');
     const uploader = document.getElementById("uploader");
     const adminBtn = document.getElementById("adminBtn");
     const adminPanel = document.getElementById("adminPanel");
     const cloudBtn = document.getElementById('uploadCloudBtn');
-    
-    // LOGIN
-    document.getElementById('loginBtn').addEventListener('click', async () => {
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
-      if (!username || !password) { alert('Enter username and password'); return; }
 
-      try {
-        const resp = await fetch('/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const json = await resp.json();
-        if (!resp.ok) throw new Error(json.error || 'Login failed');
-
-        jwtToken = json.token;
-        alert('Login successful!');
-
-        loginForm.style.display = "none";
-        uploader.style.display = "block";
-        logoutBtn.style.display = "inline-block";
-
-        const payload = JSON.parse(atob(jwtToken.split('.')[1]));
-        if (payload.role === 'admin') {
-          adminBtn.style.display = 'block';
-        }
-      } catch (err) { alert('Login error: ' + (err.message || err)); }
+    loginCognitoBtn.addEventListener('click', () => {
+      window.location.href = '/login';
     });
+
+    loginGoogleBtn.addEventListener('click', () => {
+      window.location.href = '/login/google';
+    });
+
+    async function hydrateSessionFromServer() {
+      try {
+        const resp = await fetch('/auth/session', { credentials: 'include' });
+        if (!resp.ok) throw new Error('Not authenticated');
+        const json = await resp.json();
+  accessToken = json.accessToken || null;
+  jwtToken = json.idToken || accessToken || null;
+        refreshToken = json.refreshToken || null;
+        userProfile = json.user || null;
+
+        if (jwtToken) {
+          const payload = safeParseJwt(jwtToken);
+          if (payload?.['cognito:groups']) {
+            userProfile = userProfile || {};
+            userProfile.groups = payload['cognito:groups'];
+            if (!userProfile.role) {
+              userProfile.role = payload['cognito:groups'].includes('Admin') ? 'admin' : (payload['cognito:groups'][0] || 'user');
+            }
+          }
+        }
+      } catch (err) {
+        jwtToken = null;
+        accessToken = null;
+        refreshToken = null;
+        userProfile = null;
+      }
+    }
+
+    function safeParseJwt(token) {
+      try {
+        return JSON.parse(atob(token.split('.')[1]));
+      } catch (err) {
+        console.warn('Unable to parse JWT payload', err);
+        return null;
+      }
+    }
+
+    function isAdminUser() {
+      if (!userProfile) return false;
+      if (userProfile.role === 'admin') return true;
+      if (Array.isArray(userProfile.groups)) {
+        return userProfile.groups.includes('Admin');
+      }
+      return false;
+    }
+
+    function applyAuthState() {
+      if (jwtToken) {
+        loginForm.style.display = 'none';
+        uploader.style.display = 'block';
+        logoutBtn.style.display = 'inline-block';
+        adminBtn.style.display = isAdminUser() ? 'block' : 'none';
+      } else {
+        uploader.style.display = 'none';
+        adminBtn.style.display = 'none';
+        logoutBtn.style.display = 'none';
+        adminPanel.style.display = 'none';
+        if (cpuInterval) {
+          clearInterval(cpuInterval);
+          cpuInterval = null;
+        }
+        loginForm.style.display = 'block';
+      }
+    }
+
+    async function bootstrap() {
+      await hydrateSessionFromServer();
+      applyAuthState();
+
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('auth') === 'error') {
+        alert('Authentication failed. Please try again.');
+        params.delete('auth');
+        const newQuery = params.toString();
+        const newUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '');
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
+
+    bootstrap();
 
     // UPLOAD HANDLER
     document.getElementById('uploadBtn').addEventListener('click', () => {
@@ -217,15 +282,16 @@
             if (xhr.status === 200) {
                 const json = JSON.parse(xhr.responseText);
 
-                statusEl.innerHTML = `
-                    <p style="font-weight:bold; color:green;">
-                        Converted! <a href="${json.download}" target="_blank" style="color:blue;">Download here</a>
-                    </p>
-                    <ul style="list-style:none; padding-left:0;">
-                        <li><strong>Codec:</strong> ${json.metadata.codec}</li>
-                        <li><strong>Bitrate:</strong> ${json.metadata.bitrate}</li>
-                    </ul>
-                `;
+        const meta = json.metadata || {};
+        statusEl.innerHTML = `
+          <p style="font-weight:bold; color:green;">
+            Converted! <a href="${json.s3Url}" target="_blank" style="color:blue;">Download here</a>
+          </p>
+          <ul style="list-style:none; padding-left:0;">
+            <li><strong>Codec:</strong> ${meta.codec || 'n/a'}</li>
+            <li><strong>Bitrate:</strong> ${meta.bitrate || 'n/a'}</li>
+          </ul>
+        `;
                 // Show Cloudinary upload button and set filename
                 cloudBtn.style.display = 'block';
                 cloudBtn.dataset.filename = json.outputFile.split('/').pop();
@@ -273,6 +339,10 @@
 
     // ADMIN BUTTON TOGGLE
     adminBtn.addEventListener('click', async () => {
+    if (!jwtToken) {
+      alert('Please sign in first.');
+      return;
+    }
         if (adminPanel.style.display === 'block') {
             // Hide panel
             adminPanel.style.display = 'none';
@@ -296,12 +366,16 @@
     // FETCH LOGS
 async function fetchLogs(updateCpu = false) {
   try {
+    if (!jwtToken) {
+      throw new Error('Missing token');
+    }
     const sort = document.getElementById("sortSelect").value;
     const user = document.getElementById("userFilter").value;
     const resolution = document.getElementById("resFilter").value;
 
     const resp = await fetch(`/logs?page=${currentPage}&limit=${limit}&sort=${sort}&user=${user}&resolution=${resolution}`, {
-      headers: { 'Authorization': 'Bearer ' + jwtToken }
+      headers: { 'Authorization': 'Bearer ' + jwtToken },
+      credentials: 'include'
     });
 
     const json = await resp.json();
@@ -373,7 +447,11 @@ async function fetchLogs(updateCpu = false) {
 
     async function updateCpuChart() {
     try {
-        const resp = await fetch('/logs', { headers: { 'Authorization': 'Bearer ' + jwtToken } });
+        if (!jwtToken) return;
+        const resp = await fetch('/logs', {
+          headers: { 'Authorization': 'Bearer ' + jwtToken },
+          credentials: 'include'
+        });
         const json = await resp.json();
         if (!json.cpu || !json.cpu.cpuUsagePercent) return;
 
@@ -393,17 +471,25 @@ async function fetchLogs(updateCpu = false) {
 
 
     // LOGOUT
-    logoutBtn.addEventListener("click", () => {
+    logoutBtn.addEventListener("click", async () => {
+      try {
+        await fetch('/logout', { credentials: 'include' });
+      } catch (err) {
+        console.warn('Logout request failed', err);
+      }
+
       jwtToken = null;
-      uploader.style.display = "none";
-      adminBtn.style.display = "none";
-      adminPanel.style.display = "none";
-      loginForm.style.display = "block";
-      logoutBtn.style.display = "none";
+      accessToken = null;
+      refreshToken = null;
+      userProfile = null;
+
       document.getElementById("video").value = "";
       document.getElementById("resolution").value = "";
       document.getElementById("uploadProgress").value = 0;
       document.getElementById("progressText").textContent = "0%";
+      document.getElementById('status').textContent = '';
+
+      applyAuthState();
       alert("You have been logged out successfully!");
     });
 
@@ -417,6 +503,7 @@ async function fetchLogs(updateCpu = false) {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + jwtToken 
           },
+          credentials: 'include',
           body: JSON.stringify({ filename })
         });
         console.log('Fetch status:', resp.status); 

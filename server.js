@@ -1,46 +1,89 @@
 require('dotenv').config();
 const express = require('express');
+const session = require('express-session');
 const path = require('path');
 const multer = require('multer');
-const { spawn,execFile  } = require('child_process');
-const fs = require('fs');
+const { spawn, execFile } = require('child_process');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
 const os = require('os');
-const { exec } = require('child_process'); 
 const cloudinary = require('cloudinary').v2;
 const mime = require('mime-types');
 const { Readable, PassThrough, pipeline } = require('stream');
+const { Issuer, generators } = require('openid-client');
+const {
+  CognitoIdentityProviderClient,
+  SignUpCommand,
+  ConfirmSignUpCommand,
+  InitiateAuthCommand,
+  RespondToAuthChallengeCommand,
+  AdminListGroupsForUserCommand
+} = require('@aws-sdk/client-cognito-identity-provider');
+const { CognitoJwtVerifier } = require('aws-jwt-verify');
 
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
 const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
-const express = require('express');
-const session = require('express-session');
-const { Issuer, generators } = require('openid-client');
 
 const app = express();
 
-// Serve static files from the public folder
-app.use(express.static(path.join(__dirname, 'public')));
+const PORT = process.env.PORT;
+const JWT_SECRET = process.env.JWT_SECRET;
+const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 
-// Serve index.html on root
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+const cognitoRegion = process.env.REGION;
+const cognitoClientId = process.env.COGNITO_CLIENT_ID;
+const cognitoClientSecret = process.env.COGNITO_CLIENT_SECRET;
+const cognitoUserPoolId = process.env.COGNITO_USER_POOL_ID;
+
+if (!cognitoClientId || !cognitoUserPoolId) {
+  console.warn('Cognito configuration incomplete: ensure COGNITO_CLIENT_ID and COGNITO_USER_POOL_ID are set.');
+}
+
+const cognitoClient = new CognitoIdentityProviderClient({ region: cognitoRegion });
+
+const sessionSecret = JWT_SECRET;
+
+const idTokenVerifier = CognitoJwtVerifier.create({
+  userPoolId: cognitoUserPoolId,
+  tokenUse: 'id',
+  clientId: cognitoClientId
 });
 
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
+const accessTokenVerifier = CognitoJwtVerifier.create({
+  userPoolId: cognitoUserPoolId,
+  tokenUse: 'access',
+  clientId: cognitoClientId
+});
 
-app.use(express.json()); // for parsing JSON bodies
+function generateSecretHash(username) {
+  if (!cognitoClientSecret || !cognitoClientId) return undefined;
+  return crypto
+    .createHmac('sha256', cognitoClientSecret)
+    .update(`${username}${cognitoClientId}`)
+    .digest('base64');
+}
+
+async function fetchGroupsForUser(username) {
+  if (!username || !cognitoUserPoolId) return [];
+  try {
+    const command = new AdminListGroupsForUserCommand({
+      UserPoolId: cognitoUserPoolId,
+      Username: username
+    });
+    const response = await cognitoClient.send(command);
+    return (response.Groups || []).map(group => group.GroupName);
+  } catch (err) {
+    console.warn('Unable to fetch Cognito groups for user', username, err?.message || err);
+    return [];
+  }
+}
+
+app.use(express.json());
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
-
-const OUTPUT_DIR = path.resolve(__dirname, 'outputs');
 
 // -- Cognito quick setup from AWS COGNITO example code ---
 let client;
@@ -57,117 +100,437 @@ async function initializeClient() {
 initializeClient().catch(console.error);
 
 app.use(session({
-    secret: process.env.JWT_SECRET,
-    resave: false,
-    saveUninitialized: false
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  }
 }));
 
-const checkAuth = (req, res, next) => {
-    if (!req.session.userInfo) {
-        req.isAuthenticated = false;
-    } else {
-        req.isAuthenticated = true;
-    }
-    next();
-};
+app.use(express.urlencoded({ extended: false }));
 
-app.get('/', checkAuth, (req, res) => {
-    res.render('home', {
-        isAuthenticated: req.isAuthenticated,
-        userInfo: req.session.userInfo
-    });
+// Serve static files from the public folder
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve index.html on root
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/login', (req, res) => {
-    const nonce = generators.nonce();
-    const state = generators.state();
+  if (!client) {
+    return res.status(503).json({ error: 'Identity provider not initialised yet. Please try again in a moment.' });
+  }
 
-    req.session.nonce = nonce;
-    req.session.state = state;
+  const nonce = generators.nonce();
+  const state = generators.state();
 
-    const authUrl = client.authorizationUrl({
-        scope: 'email openid phone',
-        state: state,
-        nonce: nonce,
-    });
+  req.session.nonce = nonce;
+  req.session.state = state;
 
-    const loginUrl =  `${process.env.COGNITO_DOMAIN}/login?client_id=${process.env.COGNITO_CLIENT_ID}&response_type=code&scope=email+openid+phone&redirect_uri=${process.env.COGNITO_REDIRECT_URI}`;
-    res.redirect(authUrl);
-});
-
-// Helper function to get the path from the URL. Example: "http://localhost/hello" returns "/hello"
-function getPathFromURL(urlString) {
-    try {
-        const url = new URL(urlString);
-        return url.pathname;
-    } catch (error) {
-        console.error('Invalid URL:', error);
-        return null;
-    }
-}
-
-app.get(getPathFromURL(process.env.COGNITO_REDIRECT_URI), async (req, res) => {
-    try {
-        const params = client.callbackParams(req);
-        const tokenSet = await client.callback(
-            process.env.COGNITO_REDIRECT_URI,
-            params,
-            {
-                nonce: req.session.nonce,
-                state: req.session.state
-            }
-        );
-
-        const userInfo = await client.userinfo(tokenSet.access_token);
-        req.session.userInfo = userInfo;
-
-        res.redirect('/');
-    } catch (err) {
-        console.error('Callback error:', err);
-        res.redirect('/');
-    }
-});
-
-// Logout route
-app.get('/logout', (req, res) => {
-    req.session.destroy();
-    const logoutUrl = `${process.env.COGNITO_DOMAIN}/logout?client_id=${process.env.COGNITO_CLIENT_ID}&logout_uri=${process.env.COGNITO_REDIRECT_URI}`;
-    res.redirect(logoutUrl);
-});
-
-app.set('view engine', 'ejs');
-
-// -- END Cognito quick setup from AWS COGNITO example code ---
-
-
-
-// --- Hard-coded users ---
-const users = [
-  { username: 'user1', passwordHash: bcrypt.hashSync('pass', 10), role: 'user' },
-  { username: 'admin', passwordHash: bcrypt.hashSync('adminpass', 10), role: 'admin' }
-];
-
-// --- JWT middleware ---
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.sendStatus(401);
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
+  const baseAuthUrl = client.authorizationUrl({
+    scope: 'openid email phone profile',
+    state,
+    nonce
   });
+
+  const provider = req.query.provider;
+  const redirectUrl = provider
+    ? `${baseAuthUrl}&identity_provider=${encodeURIComponent(provider)}`
+    : baseAuthUrl;
+
+  res.redirect(redirectUrl);
+});
+
+app.get('/login/google', (req, res) => {
+  res.redirect('/login?provider=Google');
+});
+
+function getPathFromURL(urlString) {
+  try {
+    const url = new URL(urlString);
+    return url.pathname;
+  } catch (error) {
+    console.error('Invalid URL:', error);
+    return '/oauth2/callback';
+  }
 }
 
-// Middleware to check admin role
+const redirectPath = getPathFromURL(process.env.COGNITO_REDIRECT_URI);
+
+app.get(redirectPath, async (req, res) => {
+  if (!client) {
+    return res.status(503).json({ error: 'Identity provider not initialised yet.' });
+  }
+
+  try {
+    const params = client.callbackParams(req);
+    const tokenSet = await client.callback(
+      process.env.COGNITO_REDIRECT_URI,
+      params,
+      {
+        nonce: req.session.nonce,
+        state: req.session.state
+      }
+    );
+
+    const idClaims = tokenSet.id_token
+      ? await idTokenVerifier.verify(tokenSet.id_token)
+      : null;
+
+    let groups = idClaims?.['cognito:groups'] || [];
+    if ((!groups || groups.length === 0) && idClaims?.['cognito:username']) {
+      groups = await fetchGroupsForUser(idClaims['cognito:username']);
+    }
+
+    const role = groups && groups.includes('Admin')
+      ? 'admin'
+      : (groups && groups.length > 0 ? groups[0] : 'user');
+
+    req.session.tokenSet = {
+      idToken: tokenSet.id_token,
+      accessToken: tokenSet.access_token,
+      refreshToken: tokenSet.refresh_token,
+      expiresAt: tokenSet.expires_at
+    };
+    req.session.user = {
+      username: idClaims?.['cognito:username'] || idClaims?.email || null,
+      email: idClaims?.email || null,
+      sub: idClaims?.sub || null,
+      groups,
+      role
+    };
+
+    res.redirect('/');
+  } catch (err) {
+    console.error('Callback error:', err);
+    res.redirect('/?auth=error');
+  }
+});
+
+app.get('/logout', (req, res) => {
+  const logoutUrl = `${process.env.COGNITO_DOMAIN}/logout?client_id=${process.env.COGNITO_CLIENT_ID}&logout_uri=${process.env.COGNITO_REDIRECT_URI}`;
+  req.session.destroy(() => {
+    res.redirect(logoutUrl);
+  });
+});
+async function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authorization header with Bearer token is required' });
+  }
+
+  const token = authHeader.substring('Bearer '.length).trim();
+
+  try {
+    let payload;
+    try {
+      payload = await idTokenVerifier.verify(token);
+    } catch (idErr) {
+      try {
+        payload = await accessTokenVerifier.verify(token);
+      } catch (accessErr) {
+        console.error('JWT verification failed (ID+Access):', idErr?.message || idErr, accessErr?.message || accessErr);
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+    }
+
+    const username = payload['cognito:username'] || payload.username || payload.email || payload.sub;
+    let groups = payload['cognito:groups'] || [];
+
+    if ((!groups || groups.length === 0) && username) {
+      groups = await fetchGroupsForUser(username);
+    }
+
+    const role = groups.includes('Admin') ? 'admin' : (groups[0] || 'user');
+
+    req.user = {
+      username,
+      email: payload.email || null,
+      sub: payload.sub || null,
+      groups,
+      role,
+      tokenUse: payload.token_use || (payload.scope ? 'access' : 'id')
+    };
+
+    next();
+  } catch (err) {
+    console.error('JWT verification error:', err?.message || err);
+    res.status(401).json({ error: 'Unable to verify token' });
+  }
+}
+
 function requireAdmin(req, res, next) {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden: Admins only' });
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden: Admins only' });
+  }
   next();
 }
 
+app.get('/auth/session', (req, res) => {
+  if (!req.session?.tokenSet || !req.session?.user) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
 
-// GET /logs - only admin
+  res.json({
+    idToken: req.session.tokenSet.idToken,
+    accessToken: req.session.tokenSet.accessToken,
+    refreshToken: req.session.tokenSet.refreshToken,
+    expiresAt: req.session.tokenSet.expiresAt,
+    user: req.session.user
+  });
+});
+
+app.post('/auth/signup', async (req, res) => {
+  const { username, password, email, attributes = [], clientMetadata = {} } = req.body || {};
+
+  if (!username || !password || !email) {
+    return res.status(400).json({ error: 'username, password and email are required' });
+  }
+
+  const userAttributes = [
+    { Name: 'email', Value: email },
+    ...attributes
+      .filter(attr => attr && attr.Name && attr.Value && attr.Name !== 'email')
+  ];
+
+  const params = {
+    ClientId: cognitoClientId,
+    Username: username,
+    Password: password,
+    UserAttributes: userAttributes,
+    ClientMetadata: clientMetadata
+  };
+
+  const secretHash = generateSecretHash(username);
+  if (secretHash) params.SecretHash = secretHash;
+
+  try {
+    const response = await cognitoClient.send(new SignUpCommand(params));
+    res.status(201).json({
+      userConfirmed: response.UserConfirmed,
+      codeDeliveryDetails: response.CodeDeliveryDetails,
+      userSub: response.UserSub
+    });
+  } catch (err) {
+    console.error('Sign-up error:', err?.message || err);
+    res.status(400).json({ error: err?.message || 'Failed to sign up user' });
+  }
+});
+
+app.post('/auth/confirm', async (req, res) => {
+  const { username, code } = req.body || {};
+
+  if (!username || !code) {
+    return res.status(400).json({ error: 'username and code are required' });
+  }
+
+  const params = {
+    ClientId: cognitoClientId,
+    Username: username,
+    ConfirmationCode: code
+  };
+
+  const secretHash = generateSecretHash(username);
+  if (secretHash) params.SecretHash = secretHash;
+
+  try {
+    await cognitoClient.send(new ConfirmSignUpCommand(params));
+    res.json({ confirmed: true });
+  } catch (err) {
+    console.error('Confirm sign-up error:', err?.message || err);
+    res.status(400).json({ error: err?.message || 'Failed to confirm user' });
+  }
+});
+
+app.post('/auth/login', async (req, res) => {
+  const { username, password } = req.body || {};
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'username and password are required' });
+  }
+
+  const authParameters = {
+    USERNAME: username,
+    PASSWORD: password
+  };
+
+  const secretHash = generateSecretHash(username);
+  if (secretHash) authParameters.SECRET_HASH = secretHash;
+
+  const command = new InitiateAuthCommand({
+    ClientId: cognitoClientId,
+    AuthFlow: 'USER_PASSWORD_AUTH',
+    AuthParameters: authParameters
+  });
+
+  try {
+    const response = await cognitoClient.send(command);
+
+    if (response.ChallengeName) {
+      return res.status(202).json({
+        challengeName: response.ChallengeName,
+        session: response.Session,
+        parameters: response.ChallengeParameters,
+        message: 'Additional verification required (MFA/Challenge).'
+      });
+    }
+
+    const authResult = response.AuthenticationResult;
+    const idClaims = await idTokenVerifier.verify(authResult.IdToken);
+    let groups = idClaims['cognito:groups'] || [];
+
+    if ((!groups || groups.length === 0) && idClaims['cognito:username']) {
+      groups = await fetchGroupsForUser(idClaims['cognito:username']);
+    }
+
+    const role = groups.includes('Admin') ? 'admin' : (groups[0] || 'user');
+
+    res.json({
+      tokens: {
+        idToken: authResult.IdToken,
+        accessToken: authResult.AccessToken,
+        refreshToken: authResult.RefreshToken,
+        expiresIn: authResult.ExpiresIn,
+        tokenType: authResult.TokenType
+      },
+      user: {
+        username: idClaims['cognito:username'] || idClaims.email || null,
+        email: idClaims.email || null,
+        groups,
+        role
+      }
+    });
+  } catch (err) {
+    console.error('Login error:', err?.message || err);
+    res.status(400).json({ error: err?.message || 'Login failed' });
+  }
+});
+
+app.post('/auth/challenge', async (req, res) => {
+  const { username, session, challengeName, code, answers = {} } = req.body || {};
+
+  if (!username || !session || !challengeName) {
+    return res.status(400).json({ error: 'username, session and challengeName are required' });
+  }
+
+  const challengeResponses = {
+    USERNAME: username,
+    ...answers
+  };
+
+  const secretHash = generateSecretHash(username);
+  if (secretHash) challengeResponses.SECRET_HASH = secretHash;
+
+  if (code) {
+    switch (challengeName) {
+      case 'SMS_MFA':
+        challengeResponses.SMS_MFA_CODE = code;
+        break;
+      case 'SOFTWARE_TOKEN_MFA':
+        challengeResponses.SOFTWARE_TOKEN_MFA_CODE = code;
+        break;
+      case 'CUSTOM_CHALLENGE':
+        challengeResponses.ANSWER = code;
+        break;
+      default:
+        challengeResponses.ANSWER = code;
+        break;
+    }
+  }
+
+  const command = new RespondToAuthChallengeCommand({
+    ClientId: cognitoClientId,
+    ChallengeName: challengeName,
+    Session: session,
+    ChallengeResponses: challengeResponses
+  });
+
+  try {
+    const response = await cognitoClient.send(command);
+
+    if (response.ChallengeName) {
+      return res.status(202).json({
+        challengeName: response.ChallengeName,
+        session: response.Session,
+        parameters: response.ChallengeParameters,
+        message: 'Additional verification required'
+      });
+    }
+
+    const authResult = response.AuthenticationResult;
+    const idClaims = await idTokenVerifier.verify(authResult.IdToken);
+    let groups = idClaims['cognito:groups'] || [];
+
+    if ((!groups || groups.length === 0) && idClaims['cognito:username']) {
+      groups = await fetchGroupsForUser(idClaims['cognito:username']);
+    }
+
+    const role = groups.includes('Admin') ? 'admin' : (groups[0] || 'user');
+
+    res.json({
+      tokens: {
+        idToken: authResult.IdToken,
+        accessToken: authResult.AccessToken,
+        refreshToken: authResult.RefreshToken,
+        expiresIn: authResult.ExpiresIn,
+        tokenType: authResult.TokenType
+      },
+      user: {
+        username: idClaims['cognito:username'] || idClaims.email || null,
+        email: idClaims.email || null,
+        groups,
+        role
+      }
+    });
+  } catch (err) {
+    console.error('Challenge error:', err?.message || err);
+    res.status(400).json({ error: err?.message || 'Failed to respond to challenge' });
+  }
+});
+
+app.post('/auth/refresh', async (req, res) => {
+  const { username, refreshToken } = req.body || {};
+
+  if (!refreshToken) {
+    return res.status(400).json({ error: 'refreshToken is required' });
+  }
+
+  const authParameters = {
+    REFRESH_TOKEN: refreshToken
+  };
+
+  if (username) {
+    const secretHash = generateSecretHash(username);
+    if (secretHash) authParameters.SECRET_HASH = secretHash;
+  }
+
+  const command = new InitiateAuthCommand({
+    ClientId: cognitoClientId,
+    AuthFlow: 'REFRESH_TOKEN_AUTH',
+    AuthParameters: authParameters
+  });
+
+  try {
+    const response = await cognitoClient.send(command);
+    const authResult = response.AuthenticationResult;
+    res.json({
+      tokens: {
+        idToken: authResult.IdToken,
+        accessToken: authResult.AccessToken,
+        expiresIn: authResult.ExpiresIn,
+        tokenType: authResult.TokenType
+      }
+    });
+  } catch (err) {
+    console.error('Refresh error:', err?.message || err);
+    res.status(400).json({ error: err?.message || 'Failed to refresh tokens' });
+  }
+});
+
 app.get('/logs', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const {
@@ -232,25 +595,6 @@ app.get('/logs', authenticateToken, requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch logs' });
   }
 });
-
-// --- Login route ---
-app.post('/login', (req, res) => {
-  const { username, password } = req.body;
-  const user = users.find(u => u.username === username);
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
-  if (!bcrypt.compareSync(password, user.passwordHash)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-
-  const payload = { username: user.username, role: user.role };
-  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
-
-  res.json({ token });
-});
-
-
-
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
