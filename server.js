@@ -14,6 +14,11 @@ const { Issuer } = require('openid-client');
 const { uploadFile, getPresignedUrl } = require('./backend/s3');
 const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
 const { loadSecrets } = require('./backend/secrets');
+const { loadAppConfig } = require('./backend/paramStore');
+
+loadAppConfig().then(() => {
+  console.log("Parameter Store config loaded");
+});
 
 const {
   signUpUser,
@@ -557,6 +562,9 @@ app.post('/upload-external', authenticateToken, async (req, res) => {
   }
 });
 
+app.get('/config', (req, res) => {
+  res.json({ apiUrl: process.env.BASE_URL });
+});
 
 // health
 app.get('/health', (req, res) => res.send('ok'));
