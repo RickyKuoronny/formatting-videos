@@ -94,6 +94,7 @@ async function _respondToChallenge({ username, session, challengeName, otp }) {
 
   switch (challengeName) {
     case 'SMS_MFA': challengeResponses.SMS_MFA_CODE = otp; break;
+    case 'EMAIL_OTP': challengeResponses.EMAIL_OTP_CODE = otp; break;
     case 'SOFTWARE_TOKEN_MFA': challengeResponses.SOFTWARE_TOKEN_MFA_CODE = otp; break;
     case 'EMAIL_OTP': challengeResponses.EMAIL_OTP_CODE = otp; break;
     case 'EMAIL_OTP_MULTI_FACTOR_AUTH': challengeResponses.EMAIL_OTP_CODE = otp; break;

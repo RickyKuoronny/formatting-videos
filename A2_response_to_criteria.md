@@ -31,7 +31,7 @@ Users can also retrieve processed videos via a REST API.
 - **Why is this service suited to this data?:** S3 is highly durable, scalable, and designed for large binary objects like video. It supports streaming uploads and downloads, which fits the stateless FFmpeg pipeline.
 - **Why is are the other services used not suitable for this data?:** DynamoDB is not efficient for storing large binary files. Storing video directly in DynamoDB would be expensive and slow.
 - **Bucket/instance/table name:** a2-n10666630
-- **Video timestamp:**
+- **Video timestamp:** 00:00:56
 - **Relevant files:**
     - server.js
     - /backend/s3.js
@@ -43,7 +43,7 @@ Users can also retrieve processed videos via a REST API.
 - **Why is this service suited to this data?:** DynamoDB is a fast, scalable NoSQL database that is ideal for structured, queryable metadata. It allows quick lookups and sorting by keys (like filenames or users).
 - **Why is are the other services used not suitable for this data?:** S3 is optimized for object storage, not structured metadata queries. Storing metadata in S3 would require downloading and parsing objects, which is inefficient.
 - **Bucket/instance/table name:** a2-n10666630
-- **Video timestamp:**
+- **Video timestamp:** 00:01:45
 - **Relevant files:**
     - server.js
     - /backend/dynamo.js
@@ -62,7 +62,7 @@ Users can also retrieve processed videos via a REST API.
 ### S3 Pre-signed URLs
 
 - **S3 Bucket names:** a2-n10666630
-- **Video timestamp:** 
+- **Video timestamp:** 00:01:30
 - **Relevant files:**
     - /backend/s3.js
     - server.js
@@ -98,50 +98,60 @@ Users can also retrieve processed videos via a REST API.
 ### Core - Authentication with Cognito
 
 - **User pool name:** A2_n11036583_userpool 
-- **How are authentication tokens handled by the client?:** [eg. Response to login request sets a cookie containing the token.]
-- **Video timestamp:**
+- **How are authentication tokens handled by the client?:** Tokens are returned in the response to login requests and stored in sessionStorage. The client includes the idToken as a Bearer token in the Authorization header for subsequent API requests.
+- **Video timestamp:** 00:02:50
 - **Relevant files:**
-    -
+    - /backend/cognito.js
+    - server.js 
+    - /public/index.html
 
 ### Cognito multi-factor authentication
 
 - **What factors are used for authentication:** Email One Time Code, and Password
-- **Video timestamp:**
+- **Video timestamp:** 00:00:08
 - **Relevant files:**
-    -
+    - /backend/cognito.js
+    - server.js 
+    - /public/index.html
 
 ### Cognito federated identities
 
 - **Identity providers used:** Google
-- **Video timestamp:**
+- **Video timestamp:** 00:03:32
 - **Relevant files:**
-    -
+    - /backend/cognito.js
+    - server.js 
+    - /public/index.html
 
 ### Cognito groups
 
-- **How are groups used to set permissions?:** `user` can use the format video application and `admin` can see the logs and cpu usage
-- **Video timestamp:**
+- **How are groups used to set permissions?:** Users in the user group can upload and convert videos, whereas users in the admin group can view conversion logs and CPU usage. Group membership is checked in JWT payload after login.
+- **Video timestamp:** 00:03:57
 - **Relevant files:**
-    -
+    - /backend/cognito.js
+    - server.js 
+    - /public/index.html
 
 ### Core - DNS with Route53
 
 - **Subdomain**: http://a2-n10666630.cab432.com
-- **Video timestamp:**
+- **Video timestamp:** 00:04:55
 
 ### Parameter store
 
-- **Parameter names:** 
-- **Video timestamp:**
+- **Parameter names:** /n10666630/base_url
+- **Video timestamp:** 00:06:11
 - **Relevant files:**
-    -
+    - paramStore.js
+    - server.js
 
 ### Secrets manager
 
-- **Secrets names:** 
-- **Video timestamp:**
+- **Secrets names:** CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, JWT_SECRET, PORT, REGION, COGNITO_ISSUER COGNITO_REDIRECT_URI, COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_CLIENT_SECRET,COGNITO_DOMAIN
+- **Video timestamp:** 00:06:43
 - **Relevant files:**
-    -
+    - secrets.js
+    - server.js
 
 ### Infrastructure as code
 
