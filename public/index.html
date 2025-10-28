@@ -647,11 +647,7 @@
           if (xhr.status === 202) {
             const jobId = json.jobId || json.job_id;
             statusEl.textContent = `Job queued (ID: ${jobId}). Waiting for conversion...`;
-            if (jobId && typeof pollJobStatus === 'function') {
-              pollJobStatus(jobId, statusEl);
-            } else {
-              console.warn('No jobId returned or pollJobStatus missing', json);
-            }
+            if (jobId) pollJobStatus(jobId, statusEl);
             return;
           }
 
@@ -776,65 +772,56 @@ async function setDownloadLink(jobId) {
 // setDownloadLink(returnedJobId);
 
 // Add this helper near other script functions
- async function pollJobStatus(jobId, statusEl, intervalMs = 3000, timeoutMs = 5 * 60 * 1000) {
-   const start = Date.now();
-   const token = state.tokens ? state.tokens.idToken : null;
+async function pollJobStatus(jobId, statusEl, intervalMs = 3000, timeoutMs = 5 * 60 * 1000) {
+  const started = Date.now();
 
-   while (Date.now() - start < timeoutMs) {
-     try {
-       const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, {
-         headers: token ? { Authorization: 'Bearer ' + token } : {}
-       });
+  async function poll() {
+    if (Date.now() - started > timeoutMs) {
+      statusEl.textContent = 'Timed out waiting for conversion.';
+      return;
+    }
 
-       if (resp.status === 200) {
-         const json = await resp.json();
-         console.log('job result:', json);
-         // prefer s3Url (lowercase/uppercase) then url
-         const url = json.s3Url || json.s3url || json.url || null;
-         if (!url) {
-           statusEl.innerHTML = `<p class="error-text">Converted but download URL missing. Server returned: ${JSON.stringify(json)}</p>`;
-           return;
-         }
-         // show final link and set Cloud button filename if provided
-         statusEl.innerHTML = `
-           <p class="success-text">
-             Converted! <a href="${url}" target="_blank" rel="noopener">Download here</a>
-           </p>
-         `;
-         const outputKey = json.outputKey || json.output || json.outputFile;
-        if (outputKey) {
-          cloudBtn.style.display = 'inline-flex';
-          cloudBtn.disabled = false;
-          cloudBtn.textContent = 'Upload to Cloud';
-          cloudBtn.dataset.filename = outputKey;
+    try {
+      const headers = getAuthToken() ? { Authorization: 'Bearer ' + getAuthToken() } : {};
+      const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, { headers });
+      const json = await resp.json().catch(() => ({}));
+
+      if (resp.status === 200) {
+        // Job completed, get the URL
+        const url = json.url || json.s3Url || json.s3url || json.outputUrl || null;
+        if (!url) {
+          statusEl.textContent = 'Converted but download URL missing.';
+          return;
         }
-        // also update downloadLink anchor if present
-        const dl = document.getElementById('downloadLink');
-        if (dl) {
-          dl.href = url;
-          dl.textContent = 'Download Here';
-          dl.style.display = 'inline';
-        }
+
+        const downloadLink = document.getElementById('downloadLink');
+        downloadLink.href = url;
+        downloadLink.textContent = 'Download Here';
+        downloadLink.style.display = 'inline';
+        statusEl.innerHTML = `<p class="success-text">Conversion complete! <a href="${url}" target="_blank" rel="noopener">Download here</a></p>`;
         return;
-       }
+      }
 
-       if (resp.status === 202) {
-         statusEl.textContent = `Queued (ID: ${jobId}) — converting...`;
-       } else if (resp.status === 404) {
-         statusEl.textContent = 'Job not found (will retry)...';
-       } else {
-         const txt = await resp.text().catch(()=>resp.statusText);
-         statusEl.innerHTML = `<p class="error-text">Error checking job: ${txt}</p>`;
-         return;
-       }
-     } catch (err) {
-       console.warn('pollJobStatus error', err);
-     }
-     await new Promise(r => setTimeout(r, intervalMs));
-   }
+      if (resp.status === 202) {
+        // Still processing
+        statusEl.textContent = 'Processing...';
+      } else {
+        statusEl.textContent = `Error checking job: ${json.error || resp.statusText}`;
+        return;
+      }
+    } catch (err) {
+      console.error('pollJobStatus error', err);
+      statusEl.textContent = 'Network error while polling job.';
+      return;
+    }
 
-   statusEl.innerHTML = `<p class="error-text">Timed out waiting for conversion. Please try again later.</p>`;
- }
+    // Poll again after interval
+    setTimeout(poll, intervalMs);
+  }
+
+  poll(); // start polling
+}
+
   </script>
 <!-- (removed duplicate downloadLink anchor) -->
 </body>
