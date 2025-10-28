@@ -30,6 +30,8 @@
     "@aws-sdk/client-secrets-manager": "^3.637.0",
     "mime-types": "^2.1.35",
     "openid-client": "^5.7.0",
-    "ffmpeg-static": "^5.1.0"
+    "ffmpeg-static": "^5.1.0",
+    "@aws-sdk/client-auto-scaling": "^3.0.0",
+    "@aws-sdk/client-cloudwatch": "^3.0.0"
   }
 }

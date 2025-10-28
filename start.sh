@@ -1,4 +1,4 @@
 #!/bin/bash
 
 cd /home/ubuntu/formatvideo
-/usr/bin/node server.js
+/usr/bin/node backend/worker.js
