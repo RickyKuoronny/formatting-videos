@@ -1,17 +1,31 @@
-const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand, ChangeMessageVisibilityCommand } = require('@aws-sdk/client-sqs');
 const { execFile, spawn } = require('child_process');
 const { PassThrough, pipeline } = require('stream');
 const crypto = require('crypto');
 
 const { getPresignedUrl, uploadFile } = require('./s3'); // existing helpers
 const { saveLog, saveMetadata } = require('./dynamo');
+const { loadSecrets } = require('./secrets');
 
-const sqsClient = new SQSClient({ region: process.env.AWS_REGION });
-const queueUrl = process.env.SQS_QUEUE_URL;
-if (!queueUrl) throw new Error('SQS_QUEUE_URL required');
+let sqsClient;
+let queueUrl;
 
 const POLL_WAIT_SECONDS = 20; // long-poll
 const VISIBILITY_TIMEOUT = parseInt(process.env.SQS_VISIBILITY_TIMEOUT || '300', 10); // seconds
+
+async function init() {
+  // load secrets from Secrets Manager (injects into process.env)
+  await loadSecrets();
+
+  // now read env vars populated from the secret
+  const { SQS_QUEUE_URL, AWS_REGION } = process.env;
+  if (!SQS_QUEUE_URL) throw new Error('SQS_QUEUE_URL required in secrets or env');
+
+  sqsClient = new (require('@aws-sdk/client-sqs').SQSClient)({ region: AWS_REGION || 'ap-southeast-2' });
+  queueUrl = SQS_QUEUE_URL;
+
+  // start polling after init
+  pollLoop().catch(err => { console.error('Worker fatal error:', err); process.exit(1); });
+}
 
 async function processMessage(msg) {
   const body = JSON.parse(msg.Body);
@@ -121,4 +135,5 @@ async function pollLoop() {
   }
 }
 
-pollLoop().catch(err => { console.error('Worker fatal error:', err); process.exit(1); });
+// replace final call with init()
+init();
