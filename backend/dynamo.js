@@ -10,8 +10,8 @@ const { DynamoDBDocumentClient, PutCommand } = require("@aws-sdk/lib-dynamodb");
 const ddbClient = new DynamoDBClient({ region: 'ap-southeast-2' });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
-const TABLE_NAME = "a2-n10666630";
-const qutUsername = "n10666630@qut.edu.au";
+const TABLE_NAME = process.env.TABLE_NAME || "a2-n10666630";
+const qutUsername = process.env.QUT_USERNAME || "n10666630@qut.edu.au";
 
 let tableEnsured = false;
 
@@ -70,24 +70,34 @@ async function saveMetadata(jobId, metadata) {
   return await docClient.send(command);
 }
 
-async function saveLog(log) {
+export async function saveLog(log) {
   await ensureTable();
 
-  const { jobId } = log;
-  if (!jobId) throw new Error("Missing jobId in saveLog");
+  // Ensure required keys exist
+  const username = log["qut-username"] || qutUsername;
+  const filename =
+    log.filename ||
+    log.jobId ||
+    log.output ||
+    `log-${Date.now()}`; // fallback filename
 
-  const command = new PutCommand({
-    TableName: TABLE_NAME,
-    Item: {
-      jobId,
-      "qut-username": qutUsername,
-      ...log,
-      type: "log",
-      updatedAt: new Date().toISOString()
-    },
-  });
+  const item = {
+    "qut-username": username,
+    filename,
+    ...log,
+  };
 
-  return await docClient.send(command);
+  try {
+    await docClient.send(
+      new PutCommand({
+        TableName: TABLE_NAME,
+        Item: item,
+      })
+    );
+    console.log("saveLog success:", filename);
+  } catch (err) {
+    console.error("saveLog failed (non-fatal):", err);
+  }
 }
 
 async function getLogs() {
