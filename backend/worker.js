@@ -111,20 +111,35 @@ async function processMessage(msg) {
     });
 
     // Save final job log including metadata
-    await saveLog({
+    const logsQueueUrl = process.env.LOGS_QUEUE_URL;
+    const sqsClientLocal = new SQSClient({ region: process.env.AWS_REGION || 'ap-southeast-2' });
+    const logRecord = {
       jobId,
       input: inputKey,
       output: outputKey,
-      outputKey,
+      outputKey: outputKey,
       outputFile: outputKey,
       s3Key: outputKey,
       resolution,
       startedAt,
       completedAt,
       status: 'done',
-      user,
-      metadata
-    });
+      user
+    };
+    if (logsQueueUrl) {
+      try {
+        await sqsClientLocal.send(new SendMessageCommand({
+          QueueUrl: logsQueueUrl,
+          MessageBody: JSON.stringify(logRecord),
+          MessageAttributes: { source: { DataType: 'String', StringValue: 'worker' } }
+        }));
+        console.log(`Worker: enqueued log for job ${jobId} to logs queue`);
+      } catch (err) {
+        console.error('Worker: failed to enqueue log', err);
+      }
+    } else {
+      try { await saveLog(logRecord); console.log(`Worker: fallback saved log for job ${jobId}`); } catch (err) { console.error('Worker: fallback saveLog failed', err); }
+    }
 
     console.log(`Worker: saved log for job ${jobId} with metadata`);
 

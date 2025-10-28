@@ -525,23 +525,25 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     // Send job to SQS
     const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
     const awsRegion = process.env.AWS_REGION || 'ap-southeast-2';
-    const sqsClient = new SQSClient({ region: awsRegion });
-    const queueUrl = process.env.SQS_QUEUE_URL;
-    if (!queueUrl) throw new Error('SQS_QUEUE_URL not set');
+    const sqsClientLocal = new SQSClient({ region: awsRegion });
+    const logsQueueUrl = process.env.LOGS_QUEUE_URL;
 
-    const message = { jobId, inputKey, resolution, user: req.user?.username, startedAt };
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: queueUrl,
-      MessageBody: JSON.stringify(message),
-      MessageAttributes: { user: { DataType: 'String', StringValue: req.user?.username || 'unknown' } }
-    }));
-    console.log(`Enqueued job ${jobId} to ${queueUrl}`);
+    const message = { jobId, input: req.file.originalname, output: null, resolution, startedAt, status: 'queued', user: req.user?.username };
 
-    // Save log (non-blocking failure should not block response)
-    try { 
-      await saveLog({ jobId, input: req.file.originalname, output: null, resolution, startedAt, status: 'queued', user: req.user?.username });
-    } catch (e) {
-      console.error('saveLog failed (non-fatal):', e);
+    if (logsQueueUrl) {
+      try {
+        await sqsClientLocal.send(new SendMessageCommand({
+          QueueUrl: logsQueueUrl,
+          MessageBody: JSON.stringify(message),
+          MessageAttributes: { source: { DataType: 'String', StringValue: 'server' } }
+        }));
+        console.log('Enqueued log to logs queue for job', jobId);
+      } catch (e) {
+        console.error('Failed to enqueue log:', e);
+      }
+    } else {
+      // fallback: best-effort local save if queue not configured
+      try { await saveLog(message); } catch (e) { console.error('fallback saveLog failed', e); }
     }
 
     // Respond to client and return immediately
