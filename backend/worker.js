@@ -1,3 +1,4 @@
+const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand, ChangeMessageVisibilityCommand } = require('@aws-sdk/client-sqs');
 const { execFile, spawn } = require('child_process');
 const { PassThrough, pipeline } = require('stream');
 const crypto = require('crypto');
@@ -20,7 +21,7 @@ async function init() {
   const { SQS_QUEUE_URL, AWS_REGION } = process.env;
   if (!SQS_QUEUE_URL) throw new Error('SQS_QUEUE_URL required in secrets or env');
 
-  sqsClient = new (require('@aws-sdk/client-sqs').SQSClient)({ region: AWS_REGION || 'ap-southeast-2' });
+  sqsClient = new SQSClient({ region: AWS_REGION || 'ap-southeast-2' });
   queueUrl = SQS_QUEUE_URL;
 
   // start polling after init
