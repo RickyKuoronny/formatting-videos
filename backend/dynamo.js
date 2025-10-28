@@ -70,7 +70,7 @@ async function saveMetadata(jobId, metadata) {
   return await docClient.send(command);
 }
 
-export async function saveLog(log) {
+async function saveLog(log) {
   await ensureTable();
 
   // Ensure required keys exist
