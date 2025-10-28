@@ -818,12 +818,12 @@ async function pollJobStatus(jobId, statusEl, intervalMs = 3000, timeoutMs = 5 *
           return;
         }
 
-        const downloadLink = document.getElementById('downloadLink');
-        downloadLink.href = url;
-        downloadLink.textContent = 'Download Here';
-        downloadLink.style.display = 'inline';
+        // const downloadLink = document.getElementById('downloadLink');
+        // downloadLink.href = url;
+        // downloadLink.textContent = 'Download Here';
+        // downloadLink.style.display = 'inline';
 
-        statusEl.innerHTML = `<p class="success-text">Conversion complete! <a href="${url}" target="_blank" rel="noopener">Download here</a></p>`;
+        // statusEl.innerHTML = `<p class="success-text">Conversion complete! <a href="${url}" target="_blank" rel="noopener">Download here</a></p>`;
         return;
       }
 
