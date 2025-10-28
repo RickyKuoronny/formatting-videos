@@ -97,12 +97,12 @@ async function processMessage(msg) {
     console.error('ffprobe failed:', err);
   }
 
-  // Persist final job log with a consistent "output" field
+  // Persist final job log with a consistent "output" field so server can return presigned URL
   try {
     await saveLog({
       jobId,
       input: inputKey,
-      output: outputKey,      // <-- important: server polls this field
+      output: outputKey,      // <-- important: server/frontend expect this field
       resolution,
       startedAt,
       completedAt,

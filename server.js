@@ -639,27 +639,23 @@ app.get('/health', (req, res) => res.send('ok'));
 app.get('/job/:id', authenticateToken, async (req, res) => {
   try {
     const jobId = req.params.id;
-    console.log(`[GET /job/${jobId}] requested by user=${req.user?.username}`);
+    console.log(`[GET /job/${jobId}] requested by user=${req.user?.username || 'unknown'}`);
 
-    // Fetch all logs (worker saved the job entry). Search for jobId across logs.
-    const logs = await getLogs(); // getLogs() without username returns all logs
+    // Fetch logs (adjust getLogs if it requires args)
+    const logs = await getLogs(); // expects array of log entries
     console.log(`[GET /job/${jobId}] getLogs returned count=${Array.isArray(logs) ? logs.length : 0}`);
+
     const job = (Array.isArray(logs) ? logs : []).find(l => l.jobId === jobId);
     console.log(`[GET /job/${jobId}] found job=`, job);
 
-    if (!job) {
-      return res.status(404).json({ error: 'Job not found', jobId, logsCount: Array.isArray(logs) ? logs.length : 0 });
-    }
+    if (!job) return res.status(404).json({ error: 'Job not found', jobId });
 
-    // Support multiple field names worker may have used
     const outputKey = job.output || job.outputKey || job.outputFile || job.s3Key;
     console.log(`[GET /job/${jobId}] outputKey=`, outputKey);
 
-    if (!outputKey) {
-      return res.status(202).json({ status: 'pending' });
-    }
+    if (!outputKey) return res.status(202).json({ status: 'pending' });
 
-    // If outputKey looks like a full URL, return it directly
+    // If worker stored a full URL, return it directly
     if (/^https?:\/\//i.test(outputKey)) {
       return res.json({ s3Url: outputKey, s3url: outputKey, outputKey });
     }
@@ -668,7 +664,7 @@ app.get('/job/:id', authenticateToken, async (req, res) => {
     return res.json({ s3Url: url, s3url: url, outputKey, metadata: job.metadata || null });
   } catch (err) {
     console.error('GET /job/:id error', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message || 'Server error' });
   }
 });
 

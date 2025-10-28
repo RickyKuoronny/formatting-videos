@@ -646,22 +646,39 @@
         if (xhr.status === 200) {
           try {
             const json = JSON.parse(xhr.responseText);
-            const codec = json.metadata && json.metadata.codec ? `<li><strong>Codec:</strong> ${json.metadata.codec}</li>` : '';
-            const bitrate = json.metadata && json.metadata.bitrate ? `<li><strong>Bitrate:</strong> ${json.metadata.bitrate}</li>` : '';
+
+            // tolerate multiple URL field names
+            const url = json.s3Url || json.s3url || json.url || json.outputUrl || null;
+
+            // tolerate multiple metadata field names
+            const meta = json.metadata || json.meta || {};
+
+            const codec = meta.codec ? `<li><strong>Codec:</strong> ${meta.codec}</li>` : '';
+            const bitrate = meta.bitrate ? `<li><strong>Bitrate:</strong> ${meta.bitrate}</li>` : '';
+            const duration = meta.duration ? `<li><strong>Duration:</strong> ${meta.duration}</li>` : '';
+
+            const downloadHtml = url
+              ? `<a href="${url}" target="_blank" rel="noopener">Download here</a>`
+              : `<span class="muted">Download not available yet</span>`;
+
             statusEl.innerHTML = `
               <p class="success-text">
-                Converted! <a href="${json.s3Url}" target="_blank">Download here</a>
+                Converted! ${downloadHtml}
               </p>
-              <ul class="details">${codec}${bitrate}</ul>
+              <ul class="details">${codec}${bitrate}${duration}</ul>
             `;
-            if (json.outputFile) {
+
+            // ensure cloud button gets a usable filename/key
+            const outputKey = json.outputFile || json.outputKey || json.output || null;
+            if (outputKey) {
               cloudBtn.style.display = 'inline-flex';
               cloudBtn.disabled = false;
               cloudBtn.textContent = 'Upload to Cloud';
-              cloudBtn.dataset.filename = json.outputFile;
+              cloudBtn.dataset.filename = outputKey;
             }
           } catch (err) {
             statusEl.textContent = 'Converted successfully, but failed to parse response.';
+            console.error('Parse /convert 200 response error:', err, xhr.responseText);
           }
           return;
         }
@@ -744,15 +761,18 @@
 
 async function setDownloadLink(jobId) {
   try {
-    const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, { credentials: 'same-origin' });
+    const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, {
+      headers: state.tokens ? { Authorization: 'Bearer ' + state.tokens.idToken } : {}
+    });
     if (!resp.ok) {
       console.warn('job not ready', await resp.text());
       return;
     }
     const json = await resp.json();
     const a = document.getElementById('downloadLink');
-    if (a) {
-      a.href = json.url;
+    const url = json.s3Url || json.s3url || json.url || null;
+    if (a && url) {
+      a.href = url;
       a.textContent = 'Download Here';
       a.style.display = 'inline';
     }
@@ -766,41 +786,63 @@ async function setDownloadLink(jobId) {
 
 // Add this helper near other script functions
  async function pollJobStatus(jobId, statusEl, intervalMs = 3000, timeoutMs = 5 * 60 * 1000) {
-   const started = Date.now();
-   const token = getAuthToken();
+   const start = Date.now();
+   const token = state.tokens ? state.tokens.idToken : null;
 
-   while (Date.now() - started < timeoutMs) {
+   while (Date.now() - start < timeoutMs) {
      try {
-       const headers = token ? { Authorization: 'Bearer ' + token } : {};
-       const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, { headers });
-       console.log('polled /job/:id', jobId, resp.status);
+       const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, {
+         headers: token ? { Authorization: 'Bearer ' + token } : {}
+       });
+
        if (resp.status === 200) {
          const json = await resp.json();
-         const url = json.url || json.s3Url || null;
+         console.log('job result:', json);
+         // prefer s3Url (lowercase/uppercase) then url
+         const url = json.s3Url || json.s3url || json.url || null;
          if (!url) {
-           statusEl.textContent = 'Converted but download URL missing. Check server logs.';
-           return null;
+           statusEl.innerHTML = `<p class="error-text">Converted but download URL missing. Server returned: ${JSON.stringify(json)}</p>`;
+           return;
          }
-         statusEl.innerHTML = `Converted! <a href="${url}" target="_blank" rel="noopener">Download here</a>`;
-         return url;
-       } else if (resp.status === 202) {
-         statusEl.textContent = 'Processing...';
+         // show final link and set Cloud button filename if provided
+         statusEl.innerHTML = `
+           <p class="success-text">
+             Converted! <a href="${url}" target="_blank" rel="noopener">Download here</a>
+           </p>
+         `;
+         const outputKey = json.outputKey || json.output || json.outputFile;
+        if (outputKey) {
+          cloudBtn.style.display = 'inline-flex';
+          cloudBtn.disabled = false;
+          cloudBtn.textContent = 'Upload to Cloud';
+          cloudBtn.dataset.filename = outputKey;
+        }
+        // also update downloadLink anchor if present
+        const dl = document.getElementById('downloadLink');
+        if (dl) {
+          dl.href = url;
+          dl.textContent = 'Download Here';
+          dl.style.display = 'inline';
+        }
+        return;
+       }
+
+       if (resp.status === 202) {
+         statusEl.textContent = `Queued (ID: ${jobId}) — converting...`;
        } else if (resp.status === 404) {
-         statusEl.textContent = 'Job not found yet.';
+         statusEl.textContent = 'Job not found (will retry)...';
        } else {
-         const body = await resp.json().catch(() => ({}));
-         statusEl.textContent = 'Error checking job: ' + (body.error || resp.statusText);
-         return null;
+         const txt = await resp.text().catch(()=>resp.statusText);
+         statusEl.innerHTML = `<p class="error-text">Error checking job: ${txt}</p>`;
+         return;
        }
      } catch (err) {
-       console.error('pollJobStatus error', err);
-       statusEl.textContent = 'Network error while polling job';
-       return null;
+       console.warn('pollJobStatus error', err);
      }
      await new Promise(r => setTimeout(r, intervalMs));
    }
-   statusEl.textContent = 'Timed out waiting for conversion.';
-   return null;
+
+   statusEl.innerHTML = `<p class="error-text">Timed out waiting for conversion. Please try again later.</p>`;
  }
   </script>
 <!-- (removed duplicate downloadLink anchor) -->
