@@ -14,17 +14,15 @@ const POLL_WAIT_SECONDS = 20; // long-poll
 const VISIBILITY_TIMEOUT = parseInt(process.env.SQS_VISIBILITY_TIMEOUT || '300', 10); // seconds
 
 async function init() {
-  // load secrets from Secrets Manager (injects into process.env)
-  await loadSecrets();
+  await loadSecrets(); // injects secrets into process.env
 
-  // now read env vars populated from the secret
-  const { SQS_QUEUE_URL, AWS_REGION } = process.env;
+  const awsRegion = process.env.AWS_REGION || 'ap-southeast-2';
+  const { SQS_QUEUE_URL } = process.env;
   if (!SQS_QUEUE_URL) throw new Error('SQS_QUEUE_URL required in secrets or env');
 
-  sqsClient = new SQSClient({ region: AWS_REGION || 'ap-southeast-2' });
+  sqsClient = new SQSClient({ region: awsRegion });
   queueUrl = SQS_QUEUE_URL;
 
-  // start polling after init
   pollLoop().catch(err => { console.error('Worker fatal error:', err); process.exit(1); });
 }
 

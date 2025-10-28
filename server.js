@@ -39,7 +39,6 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const OAUTH_STATE_TTL = 5 * 60 * 1000; // 5 minutes
 const oauthStates = new Map();
 let oidcClientPromise;
@@ -576,7 +575,8 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
     // Send job to SQS
     const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
-    const sqsClient = new SQSClient({ region: process.env.AWS_REGION });
+    const awsRegion = process.env.AWS_REGION || 'ap-southeast-2';
+    const sqsClient = new SQSClient({ region: awsRegion });
     const queueUrl = process.env.SQS_QUEUE_URL;
     if (!queueUrl) throw new Error('SQS_QUEUE_URL not set');
 
@@ -588,13 +588,7 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
       startedAt
     };
 
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: queueUrl,
-      MessageBody: JSON.stringify(message),
-      MessageAttributes: {
-        user: { DataType: 'String', StringValue: req.user.username }
-      }
-    }));
+    await sqsClient.send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify(message), MessageAttributes: { user: { DataType: 'String', StringValue: req.user.username } } }));
 
     // Save a log entry with status "queued" (optional)
     await saveLog({
