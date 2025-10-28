@@ -569,11 +569,12 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
   const startedAt = new Date().toISOString();
 
   try {
-    // Upload original file to S3 (convert buffer -> readable stream)
+    // Upload original file to S3 (buffer -> stream)
     const inputStream = Readable.from(req.file.buffer);
     await uploadFile(inputKey, inputStream, req.file.mimetype);
+    console.log(`File uploaded to S3: ${inputKey}`);
 
-    // --- enqueue message ---
+    // Send job to SQS
     const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
     const awsRegion = process.env.AWS_REGION || 'ap-southeast-2';
     const sqsClient = new SQSClient({ region: awsRegion });
@@ -581,37 +582,28 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     if (!queueUrl) throw new Error('SQS_QUEUE_URL not set');
 
     const message = { jobId, inputKey, resolution, user: req.user?.username, startedAt };
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: JSON.stringify(message),
+      MessageAttributes: { user: { DataType: 'String', StringValue: req.user?.username || 'unknown' } }
+    }));
+    console.log(`Enqueued job ${jobId} to ${queueUrl}`);
 
-    try {
-      await sqsClient.send(new SendMessageCommand({
-        QueueUrl: queueUrl,
-        MessageBody: JSON.stringify(message),
-        MessageAttributes: { user: { DataType: 'String', StringValue: req.user?.username || 'unknown' } }
-      }));
-      console.log(`Enqueued job ${jobId} to ${queueUrl}`);
-    } catch (err) {
-      console.error('Failed to send SQS message:', err && (err.stack || err.message || err));
-      throw err; // keep behavior of returning error to client
+    // Save log (non-blocking failure should not block response)
+    try { 
+      await saveLog({ jobId, input: req.file.originalname, output: null, resolution, startedAt, status: 'queued', user: req.user?.username });
+    } catch (e) {
+      console.error('saveLog failed (non-fatal):', e);
     }
 
-    // Save a log entry with status "queued" (optional)
-    await saveLog({
-      input: req.file.originalname,
-      output: null,
-      resolution,
-      startedAt,
-      status: 'queued',
-      user: req.user.username,
-      jobId
-    });
-
+    // Respond to client and return immediately
     return res.status(202).json({ ok: true, jobId, message: 'Processing queued' });
   } catch (err) {
-    console.error('Queueing failed (full):', err && (err.stack || err.message || err));
+    console.error('Convert handler error:', err && (err.stack || err.message || err));
     return res.status(500).json({ error: 'Failed to queue job', details: err.message });
   }
 });
-// ...existing code...
+
 
 app.post('/upload-external', authenticateToken, async (req, res) => {
   const filename = req.body.filename;
