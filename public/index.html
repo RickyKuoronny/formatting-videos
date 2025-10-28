@@ -766,58 +766,41 @@ async function setDownloadLink(jobId) {
 
 // Add this helper near other script functions
  async function pollJobStatus(jobId, statusEl, intervalMs = 3000, timeoutMs = 5 * 60 * 1000) {
-   const start = Date.now();
-   const token = state.tokens ? state.tokens.idToken : null;
+   const started = Date.now();
+   const token = getAuthToken();
 
-   while (Date.now() - start < timeoutMs) {
+   while (Date.now() - started < timeoutMs) {
      try {
-       const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, {
-         headers: token ? { Authorization: 'Bearer ' + token } : {}
-       });
-
+       const headers = token ? { Authorization: 'Bearer ' + token } : {};
+       const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, { headers });
+       console.log('polled /job/:id', jobId, resp.status);
        if (resp.status === 200) {
          const json = await resp.json();
-         console.log('job result:', json);
-         // tolerate different response shapes
-         const url = json.url || json.s3Url || (json.outputKey ? `/outputs/${encodeURIComponent(json.outputKey)}` : null) || (json.output ? `/outputs/${encodeURIComponent(json.output)}` : null);
+         const url = json.url || json.s3Url || null;
          if (!url) {
-           statusEl.innerHTML = `<p class="error-text">Converted but download URL missing. Server returned: ${JSON.stringify(json)}</p>`;
-           return;
+           statusEl.textContent = 'Converted but download URL missing. Check server logs.';
+           return null;
          }
-         // show final link and set Cloud button filename if provided
-         statusEl.innerHTML = `
-           <p class="success-text">
-             Converted! <a href="${url}" target="_blank" rel="noopener">Download here</a>
-           </p>
-         `;
-         const outputKey = json.outputKey || json.output || json.outputFile;
-        if (outputKey) {
-          cloudBtn.style.display = 'inline-flex';
-          cloudBtn.disabled = false;
-          cloudBtn.textContent = 'Upload to Cloud';
-          cloudBtn.dataset.filename = outputKey;
-         }
-         return;
-       }
-
-       if (resp.status === 202) {
-         // still pending
-         statusEl.textContent = `Queued (ID: ${jobId}) — converting...`;
+         statusEl.innerHTML = `Converted! <a href="${url}" target="_blank" rel="noopener">Download here</a>`;
+         return url;
+       } else if (resp.status === 202) {
+         statusEl.textContent = 'Processing...';
        } else if (resp.status === 404) {
-         statusEl.textContent = 'Job not found (will retry)...';
+         statusEl.textContent = 'Job not found yet.';
        } else {
-         // unexpected error
-         const txt = await resp.text().catch(()=>resp.statusText);
-         statusEl.innerHTML = `<p class="error-text">Error checking job: ${txt}</p>`;
-         return;
+         const body = await resp.json().catch(() => ({}));
+         statusEl.textContent = 'Error checking job: ' + (body.error || resp.statusText);
+         return null;
        }
      } catch (err) {
-       console.warn('pollJobStatus error', err);
+       console.error('pollJobStatus error', err);
+       statusEl.textContent = 'Network error while polling job';
+       return null;
      }
      await new Promise(r => setTimeout(r, intervalMs));
    }
-
-   statusEl.innerHTML = `<p class="error-text">Timed out waiting for conversion. Please try again later.</p>`;
+   statusEl.textContent = 'Timed out waiting for conversion.';
+   return null;
  }
   </script>
 <!-- (removed duplicate downloadLink anchor) -->
