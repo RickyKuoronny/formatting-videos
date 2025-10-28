@@ -1,4 +1,4 @@
-const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand, ChangeMessageVisibilityCommand } = require('@aws-sdk/client-sqs');
+const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand, ChangeMessageVisibilityCommand, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const { execFile, spawn } = require('child_process');
 const { PassThrough, pipeline } = require('stream');
 const crypto = require('crypto');
@@ -120,13 +120,20 @@ async function processMessage(msg) {
       s3Key: outputKey,
       resolution,
       startedAt,
-      completedAt: new Date().toISOString(),
+      completedAt,
       status: 'done',
       user,
       metadata
     });
 
     console.log(`Worker: saved log for job ${jobId} with metadata`);
+
+    // Notify thumbnail & notifier services
+    try {
+      await notifyOnComplete(jobId, outputKey, user);
+    } catch (e) {
+      console.error('worker: notifyOnComplete error', e);
+    }
 
     // Delete SQS message after everything is done
     await sqsClient.send(new DeleteMessageCommand({
@@ -141,6 +148,19 @@ async function processMessage(msg) {
   }
 }
 
+// add helper to notify other queues when job completes
+async function notifyOnComplete(jobId, outputKey, user) {
+  if (!sqsClient) return;
+  const payload = JSON.stringify({ jobId, outputKey, user });
+  const thumbQ = process.env.THUMB_QUEUE_URL;
+  const notifyQ = process.env.NOTIFY_QUEUE_URL;
+  try {
+    if (thumbQ) await sqsClient.send(new SendMessageCommand({ QueueUrl: thumbQ, MessageBody: payload }));
+    if (notifyQ) await sqsClient.send(new SendMessageCommand({ QueueUrl: notifyQ, MessageBody: payload }));
+  } catch (err) {
+    console.error('worker: notifyOnComplete failed', err);
+  }
+}
 
 async function pollLoop() {
   while (true) {
