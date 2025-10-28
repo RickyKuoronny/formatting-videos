@@ -573,22 +573,26 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     const inputStream = Readable.from(req.file.buffer);
     await uploadFile(inputKey, inputStream, req.file.mimetype);
 
-    // Send job to SQS
+    // --- enqueue message ---
     const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
     const awsRegion = process.env.AWS_REGION || 'ap-southeast-2';
     const sqsClient = new SQSClient({ region: awsRegion });
     const queueUrl = process.env.SQS_QUEUE_URL;
     if (!queueUrl) throw new Error('SQS_QUEUE_URL not set');
 
-    const message = {
-      jobId,
-      inputKey,
-      resolution,
-      user: req.user.username,
-      startedAt
-    };
+    const message = { jobId, inputKey, resolution, user: req.user?.username, startedAt };
 
-    await sqsClient.send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify(message), MessageAttributes: { user: { DataType: 'String', StringValue: req.user.username } } }));
+    try {
+      await sqsClient.send(new SendMessageCommand({
+        QueueUrl: queueUrl,
+        MessageBody: JSON.stringify(message),
+        MessageAttributes: { user: { DataType: 'String', StringValue: req.user?.username || 'unknown' } }
+      }));
+      console.log(`Enqueued job ${jobId} to ${queueUrl}`);
+    } catch (err) {
+      console.error('Failed to send SQS message:', err && (err.stack || err.message || err));
+      throw err; // keep behavior of returning error to client
+    }
 
     // Save a log entry with status "queued" (optional)
     await saveLog({
@@ -603,7 +607,7 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
 
     return res.status(202).json({ ok: true, jobId, message: 'Processing queued' });
   } catch (err) {
-    console.error('Queueing failed:', err);
+    console.error('Queueing failed (full):', err && (err.stack || err.message || err));
     return res.status(500).json({ error: 'Failed to queue job', details: err.message });
   }
 });
