@@ -597,7 +597,7 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     }
 
     // Respond to client and return immediately
-    return res.status(202).json({ ok: true, jobId, message: 'Processing queued' });
+    return res.status(200).json({ ok: true, jobId, message: 'Processing queued' });
   } catch (err) {
     console.error('Convert handler error:', err && (err.stack || err.message || err));
     return res.status(500).json({ error: 'Failed to queue job', details: err.message });
