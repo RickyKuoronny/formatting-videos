@@ -746,27 +746,27 @@
       }
     });
 
-async function setDownloadLink(jobId) {
-  try {
-    const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, {
-      headers: state.tokens ? { Authorization: 'Bearer ' + state.tokens.idToken } : {}
-    });
-    if (!resp.ok) {
-      console.warn('job not ready', await resp.text());
-      return;
-    }
-    const json = await resp.json();
-    const a = document.getElementById('downloadLink');
-    const url = json.s3Url || json.s3url || json.url || null;
-    if (a && url) {
-      a.href = url;
-      a.textContent = 'Download Here';
-      a.style.display = 'inline';
-    }
-  } catch (err) {
-    console.error('Failed to fetch job URL', err);
-  }
-}
+// async function setDownloadLink(jobId) {
+//   try {
+//     const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, {
+//       headers: state.tokens ? { Authorization: 'Bearer ' + state.tokens.idToken } : {}
+//     });
+//     if (!resp.ok) {
+//       console.warn('job not ready', await resp.text());
+//       return;
+//     }
+//     const json = await resp.json();
+//     const a = document.getElementById('downloadLink');
+//     const url = json.s3Url || json.s3url || json.url || null;
+//     if (a && url) {
+//       a.href = url;
+//       a.textContent = 'Download Here';
+//       a.style.display = 'inline';
+//     }
+//   } catch (err) {
+//     console.error('Failed to fetch job URL', err);
+//   }
+// }
 
 // Example: after you receive jobId from the /convert response:
 // setDownloadLink(returnedJobId);
