@@ -97,7 +97,22 @@ async function processMessage(msg) {
     console.error('ffprobe failed:', err);
   }
 
-  await saveLog({ jobId, input: inputKey, output: outputKey, resolution, startedAt, completedAt, status: 'done', user });
+  // Persist final job log with a consistent "output" field
+  try {
+    await saveLog({
+      jobId,
+      input: inputKey,
+      output: outputKey,      // <-- important: server polls this field
+      resolution,
+      startedAt,
+      completedAt,
+      status: 'done',
+      user
+    });
+    console.log(`Worker: saved log for job ${jobId} output=${outputKey}`);
+  } catch (err) {
+    console.error('Worker: failed to save final log', err);
+  }
 
   // delete message from queue
   await sqsClient.send(new DeleteMessageCommand({

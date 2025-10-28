@@ -641,10 +641,9 @@ app.get('/job/:id', authenticateToken, async (req, res) => {
     const jobId = req.params.id;
     console.log(`[GET /job/${jobId}] requested by user=${req.user?.username}`);
 
-    // getLogs currently called with username — ensure it returns entries for this user
-    const logs = await getLogs(req.user.username);
+    // Fetch all logs (worker saved the job entry). Search for jobId across logs.
+    const logs = await getLogs(); // getLogs() without username returns all logs
     console.log(`[GET /job/${jobId}] getLogs returned count=${Array.isArray(logs) ? logs.length : 0}`);
-
     const job = (Array.isArray(logs) ? logs : []).find(l => l.jobId === jobId);
     console.log(`[GET /job/${jobId}] found job=`, job);
 
@@ -662,11 +661,11 @@ app.get('/job/:id', authenticateToken, async (req, res) => {
 
     // If outputKey looks like a full URL, return it directly
     if (/^https?:\/\//i.test(outputKey)) {
-      return res.json({ url: outputKey, outputKey });
+      return res.json({ s3Url: outputKey, s3url: outputKey, outputKey });
     }
 
     const url = await getPresignedUrl(outputKey, 60 * 5); // 5 minutes
-    return res.json({ url, outputKey, metadata: job.metadata || null });
+    return res.json({ s3Url: url, s3url: url, outputKey, metadata: job.metadata || null });
   } catch (err) {
     console.error('GET /job/:id error', err);
     return res.status(500).json({ error: err.message });
