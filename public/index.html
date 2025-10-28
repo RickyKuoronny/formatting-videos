@@ -65,6 +65,7 @@
 
       <div class="divider"><span>or</span></div>
       <button id="googleLoginBtn" class="secondary">Continue with Google</button>
+      <button id="keyLoginBtn" class="secondary">Continue with Key</button>
       <p class="feedback" id="loginFeedback"></p>
     </div>
   </section>
@@ -414,6 +415,25 @@
       }
     }
 
+    async function handleKeyLogin() {
+      const key = prompt('Enter admin key:');
+      if (!key) return;
+
+      try {
+        setFeedback(loginFeedback, 'Verifying key...', 'info');
+        const resp = await fetch('/auth/key-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.details || json.error || 'Key login failed');
+        completeAuthentication(json.tokens, json.user);
+      } catch (err) {
+        setFeedback(loginFeedback, err.message, 'error');
+      }
+    }
+
     async function handleOAuthCallback() {
       const params = new URLSearchParams(window.location.search);
       if (!params.has('code') || !params.has('state')) return;
@@ -556,6 +576,7 @@
     document.getElementById('loginBtn').addEventListener('click', handleLogin);
     document.getElementById('otpSubmitBtn').addEventListener('click', handleOtpSubmit);
     document.getElementById('googleLoginBtn').addEventListener('click', startGoogleLogin);
+    document.getElementById('keyLoginBtn').addEventListener('click', handleKeyLogin);
     logoutBtn.addEventListener('click', logout);
 
     let currentPage = 1;
