@@ -570,8 +570,9 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
   const startedAt = new Date().toISOString();
 
   try {
-    // Upload original file to S3
-    await uploadFile(inputKey, req.file.buffer, req.file.mimetype);
+    // Upload original file to S3 (convert buffer -> readable stream)
+    const inputStream = Readable.from(req.file.buffer);
+    await uploadFile(inputKey, inputStream, req.file.mimetype);
 
     // Send job to SQS
     const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
