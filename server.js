@@ -177,67 +177,24 @@ function requireAdmin(req, res, next) {
 
 
 // GET /logs - only admin
-app.get('/logs', authenticateToken, requireAdmin, async (req, res) => {
+const LOGS_SERVICE_URL = process.env.LOGS_SERVICE_URL || null;
+
+app.get('/logs', async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      sort = "startedAt:desc",
-      user,
-      resolution
-    } = req.query;
-
-    // --- Fetch logs from DynamoDB ---
-    let logs = await getLogs();
-
-    // Apply filtering
-    if (user) {
-      logs = logs.filter(log => log.user && log.user.toLowerCase() === user.toLowerCase());
-    }
-    if (resolution) {
-      logs = logs.filter(log => log.resolution === resolution);
+    if (LOGS_SERVICE_URL) {
+      // forward query string to logs service
+      const qs = new URLSearchParams(req.query).toString();
+      const url = `${LOGS_SERVICE_URL.replace(/\/$/, '')}/logs${qs ? `?${qs}` : ''}`;
+      const r = await fetch(url, { method: 'GET', headers: { accept: 'application/json' } });
+      const body = await r.text();
+      res.status(r.status).set('content-type', r.headers.get('content-type') || 'application/json').send(body);
+      return;
     }
 
-    // Apply sorting
-    const [sortField, sortOrder] = sort.split(':');
-    logs.sort((a, b) => {
-      if (a[sortField] < b[sortField]) return sortOrder === "asc" ? -1 : 1;
-      if (a[sortField] > b[sortField]) return sortOrder === "asc" ? 1 : -1;
-      return 0;
-    });
-
-    // Pagination
-    const total = logs.length;
-    const startIndex = (page - 1) * limit;
-    const paginatedLogs = logs.slice(startIndex, startIndex + parseInt(limit));
-
-    // CPU stats
-    const cores = os.cpus().length;
-    const loadAvg = os.loadavg();
-    const cpuUsagePercent = loadAvg.map(avg => Math.min((avg / cores) * 100, 100));
-    const cpuInfo = os.cpus().map(cpu => ({
-      model: cpu.model,
-      speed: cpu.speed,
-      times: cpu.times
-    }));
-
-    res.json({
-      success: true,
-      cpu: {
-        cores,
-        cpuUsagePercent,
-        cpuInfo
-      },
-      logs: paginatedLogs,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / limit)
-      }
-    });
-  } catch (error) {
-    console.error(error);
+    // fallback: existing behaviour (if no LOGS_SERVICE_URL) - keep minimal to avoid heavy scans
+    res.status(503).json({ error: 'Logs service not configured' });
+  } catch (err) {
+    console.error('server /logs proxy error', err);
     res.status(500).json({ error: 'Failed to fetch logs' });
   }
 });
