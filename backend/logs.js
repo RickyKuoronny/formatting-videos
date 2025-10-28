@@ -4,24 +4,18 @@ const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } = require('@aws
 const { loadSecrets } = require('./secrets'); // optional for loading env/secrets
 const { saveLog, getLogs } = require('./dynamo');
 
-const AWS_REGION = process.env.AWS_REGION || 'ap-southeast-2';
-const LOGS_QUEUE_URL = process.env.LOGS_QUEUE_URL;
-const PORT = process.env.PORT || 4000;
 
-if (!LOGS_QUEUE_URL) {
-  console.error('LOGS_QUEUE_URL is required');
-  process.exit(1);
-}
-
-const sqs = new SQSClient({ region: AWS_REGION });
 const app = express();
 app.use(express.json());
 
-async function dlqConsumerLoop() {
+// move SQS client and env resolution until after loadSecrets()
+async function dlqConsumerLoop(sqs, queueUrl) {
+  console.log('logs-writer started, polling', queueUrl);
+
   while (true) {
     try {
       const resp = await sqs.send(new ReceiveMessageCommand({
-        QueueUrl: LOGS_QUEUE_URL,
+        QueueUrl: queueUrl,
         MaxNumberOfMessages: 1,
         WaitTimeSeconds: 20,
         AttributeNames: ['All'],
@@ -45,7 +39,7 @@ async function dlqConsumerLoop() {
       }
 
       // delete message when persisted
-      await sqs.send(new DeleteMessageCommand({ QueueUrl: LOGS_QUEUE_URL, ReceiptHandle: msg.ReceiptHandle }));
+      await sqs.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: msg.ReceiptHandle }));
     } catch (err) {
       console.error('logs-writer loop error', err);
       await new Promise(r => setTimeout(r, 5000));
@@ -100,11 +94,32 @@ app.get('/logs', async (req, res) => {
 });
 
 async function start() {
-  await loadSecrets().catch(()=>{}); // optional: if you need secrets in env
+  // ensure secrets loaded before reading env vars
+  await loadSecrets().catch(()=>{});
+  const AWS_REGION = process.env.AWS_REGION || 'ap-southeast-2';
+  const LOGS_QUEUE_URL = process.env.LOGS_QUEUE_URL;
+  const PORT = parseInt(process.env.PORT || '4000', 10);
+
+  if (!LOGS_QUEUE_URL) {
+    console.error('ERROR: LOGS_QUEUE_URL env var is required');
+    process.exit(1);
+  }
+
+  const sqs = new SQSClient({ region: AWS_REGION });
+
   // start sqs consumer loop (background)
-  dlqConsumerLoop().catch(err => console.error('consumer loop crashed', err));
+  dlqConsumerLoop(sqs, LOGS_QUEUE_URL).catch(err => console.error('consumer loop crashed', err));
   // start http server for frontend
   app.listen(PORT, '0.0.0.0', () => console.log(`logs-writer listening on ${PORT}`));
 }
+
+process.on('SIGINT', () => {
+  console.log('logs-writer shutting down (SIGINT)');
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  console.log('logs-writer shutting down (SIGTERM)');
+  process.exit(0);
+});
 
 start().catch(err => { console.error('logs-writer fatal', err); process.exit(1); });
