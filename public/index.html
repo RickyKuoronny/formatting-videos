@@ -782,12 +782,15 @@ async function pollJobStatus(jobId, statusEl, intervalMs = 3000, timeoutMs = 5 *
     }
 
     try {
-      const headers = getAuthToken() ? { Authorization: 'Bearer ' + getAuthToken() } : {};
+      // Use your JWT token here
+      const headers = state.tokens && state.tokens.idToken
+        ? { Authorization: 'Bearer ' + state.tokens.idToken }
+        : {};
+
       const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, { headers });
       const json = await resp.json().catch(() => ({}));
 
       if (resp.status === 200) {
-        // Job completed, get the URL
         const url = json.url || json.s3Url || json.s3url || json.outputUrl || null;
         if (!url) {
           statusEl.textContent = 'Converted but download URL missing.';
@@ -798,29 +801,34 @@ async function pollJobStatus(jobId, statusEl, intervalMs = 3000, timeoutMs = 5 *
         downloadLink.href = url;
         downloadLink.textContent = 'Download Here';
         downloadLink.style.display = 'inline';
+
         statusEl.innerHTML = `<p class="success-text">Conversion complete! <a href="${url}" target="_blank" rel="noopener">Download here</a></p>`;
         return;
       }
 
       if (resp.status === 202) {
-        // Still processing
         statusEl.textContent = 'Processing...';
+      } else if (resp.status === 401) {
+        statusEl.textContent = 'Unauthorized. Please log in again.';
+        logout(); // optional: force logout
+        return;
       } else {
         statusEl.textContent = `Error checking job: ${json.error || resp.statusText}`;
         return;
       }
+
     } catch (err) {
       console.error('pollJobStatus error', err);
       statusEl.textContent = 'Network error while polling job.';
       return;
     }
 
-    // Poll again after interval
     setTimeout(poll, intervalMs);
   }
 
-  poll(); // start polling
+  poll();
 }
+
 
   </script>
 <!-- (removed duplicate downloadLink anchor) -->
