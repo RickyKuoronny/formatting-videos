@@ -638,21 +638,28 @@
         }
       };
 
-      xhr.onload = () => {
-        fileEl.disabled = false;
-        document.getElementById('resolution').disabled = false;
-        document.getElementById('uploadBtn').disabled = false;
+      xhr.onload = async function () {
+        const statusEl = document.getElementById('status');
+        try {
+          const json = JSON.parse(xhr.responseText || '{}');
 
-        if (xhr.status === 200) {
-          try {
-            const json = JSON.parse(xhr.responseText);
+          // Queued => start polling
+          if (xhr.status === 202) {
+            const jobId = json.jobId || json.job_id;
+            statusEl.textContent = `Job queued (ID: ${jobId}). Waiting for conversion...`;
+            if (jobId && typeof pollJobStatus === 'function') {
+              pollJobStatus(jobId, statusEl);
+            } else {
+              console.warn('No jobId returned or pollJobStatus missing', json);
+            }
+            return;
+          }
 
+          // Synchronous immediate success (server returned final url)
+          if (xhr.status === 200) {
             // tolerate multiple URL field names
             const url = json.s3Url || json.s3url || json.url || json.outputUrl || null;
-
-            // tolerate multiple metadata field names
             const meta = json.metadata || json.meta || {};
-
             const codec = meta.codec ? `<li><strong>Codec:</strong> ${meta.codec}</li>` : '';
             const bitrate = meta.bitrate ? `<li><strong>Bitrate:</strong> ${meta.bitrate}</li>` : '';
             const duration = meta.duration ? `<li><strong>Duration:</strong> ${meta.duration}</li>` : '';
@@ -668,42 +675,26 @@
               <ul class="details">${codec}${bitrate}${duration}</ul>
             `;
 
-            // ensure cloud button gets a usable filename/key
             const outputKey = json.outputFile || json.outputKey || json.output || null;
             if (outputKey) {
-              cloudBtn.style.display = 'inline-flex';
-              cloudBtn.disabled = false;
-              cloudBtn.textContent = 'Upload to Cloud';
-              cloudBtn.dataset.filename = outputKey;
+              const cloudBtn = document.getElementById('cloudBtn');
+              if (cloudBtn) {
+                cloudBtn.style.display = 'inline-flex';
+                cloudBtn.disabled = false;
+                cloudBtn.textContent = 'Upload to Cloud';
+                cloudBtn.dataset.filename = outputKey;
+              }
             }
-          } catch (err) {
-            statusEl.textContent = 'Converted successfully, but failed to parse response.';
-            console.error('Parse /convert 200 response error:', err, xhr.responseText);
-          }
-          return;
-        }
-
-        // --- handle queued async response (202) ---
-        if (xhr.status === 202) {
-          let json = {};
-          try { json = JSON.parse(xhr.responseText); } catch (e) {}
-          const jobId = json.jobId || json.job_id;
-          if (!jobId) {
-            statusEl.innerHTML = `<p class="error-text">Error: missing job id from server response.</p>`;
             return;
           }
-          statusEl.innerHTML = `Job queued (ID: ${jobId}). Waiting for conversion...`;
-          // start polling for job result
-          pollJobStatus(jobId, statusEl);
-          return;
-        }
 
-        // error paths
-        let errMsg = 'Upload failed';
-        try {
-          errMsg = JSON.parse(xhr.responseText).error || errMsg;
-        } catch {}
-        statusEl.innerHTML = `<p class="error-text">Error: ${errMsg}</p>`;
+          // other errors
+          const errText = json.error || xhr.statusText || `HTTP ${xhr.status}`;
+          statusEl.textContent = `Upload failed: ${errText}`;
+        } catch (err) {
+          console.error('XHR onload parse error', err, xhr.responseText);
+          document.getElementById('status').textContent = 'Upload failed: could not parse server response.';
+        }
       };
 
       xhr.onerror = () => {
