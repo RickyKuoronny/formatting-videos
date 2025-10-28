@@ -658,13 +658,30 @@
           } catch (err) {
             statusEl.textContent = 'Converted successfully, but failed to parse response.';
           }
-        } else {
-          let errMsg = 'Upload failed';
-          try {
-            errMsg = JSON.parse(xhr.responseText).error || errMsg;
-          } catch {}
-          statusEl.innerHTML = `<p class="error-text">Error: ${errMsg}</p>`;
+          return;
         }
+
+        // --- handle queued async response (202) ---
+        if (xhr.status === 202) {
+          let json = {};
+          try { json = JSON.parse(xhr.responseText); } catch (e) {}
+          const jobId = json.jobId || json.job_id;
+          if (!jobId) {
+            statusEl.innerHTML = `<p class="error-text">Error: missing job id from server response.</p>`;
+            return;
+          }
+          statusEl.innerHTML = `Job queued (ID: ${jobId}). Waiting for conversion...`;
+          // start polling for job result
+          pollJobStatus(jobId, statusEl);
+          return;
+        }
+
+        // error paths
+        let errMsg = 'Upload failed';
+        try {
+          errMsg = JSON.parse(xhr.responseText).error || errMsg;
+        } catch {}
+        statusEl.innerHTML = `<p class="error-text">Error: ${errMsg}</p>`;
       };
 
       xhr.onerror = () => {
@@ -741,6 +758,54 @@ async function setDownloadLink(jobId) {
 
 // Example: after you receive jobId from the /convert response:
 // setDownloadLink(returnedJobId);
+
+// Add this helper near other script functions
+ async function pollJobStatus(jobId, statusEl, intervalMs = 3000, timeoutMs = 5 * 60 * 1000) {
+   const start = Date.now();
+   const token = state.tokens ? state.tokens.idToken : null;
+
+   while (Date.now() - start < timeoutMs) {
+     try {
+       const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, {
+         headers: token ? { Authorization: 'Bearer ' + token } : {}
+       });
+
+       if (resp.status === 200) {
+         const json = await resp.json();
+         // show final link and set Cloud button filename if provided
+         statusEl.innerHTML = `
+           <p class="success-text">
+             Converted! <a href="${json.url}" target="_blank" rel="noopener">Download here</a>
+           </p>
+         `;
+         if (json.outputKey) {
+           cloudBtn.style.display = 'inline-flex';
+           cloudBtn.disabled = false;
+           cloudBtn.textContent = 'Upload to Cloud';
+           cloudBtn.dataset.filename = json.outputKey;
+         }
+         return;
+       }
+
+       if (resp.status === 202) {
+         // still pending
+         statusEl.textContent = `Queued (ID: ${jobId}) — converting...`;
+       } else if (resp.status === 404) {
+         statusEl.textContent = 'Job not found (will retry)...';
+       } else {
+         // unexpected error
+         const txt = await resp.text().catch(()=>resp.statusText);
+         statusEl.innerHTML = `<p class="error-text">Error checking job: ${txt}</p>`;
+         return;
+       }
+     } catch (err) {
+       console.warn('pollJobStatus error', err);
+     }
+     await new Promise(r => setTimeout(r, intervalMs));
+   }
+
+   statusEl.innerHTML = `<p class="error-text">Timed out waiting for conversion. Please try again later.</p>`;
+ }
   </script>
 <!-- Ensure you have a placeholder link in HTML -->
 <a id="downloadLink" style="display:none" target="_blank" rel="noopener noreferrer">Download Here</a>

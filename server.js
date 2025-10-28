@@ -639,13 +639,21 @@ app.get('/health', (req, res) => res.send('ok'));
 app.get('/job/:id', authenticateToken, async (req, res) => {
   try {
     const jobId = req.params.id;
-    // getLogs should return an array of log entries; adjust call if signature differs
-    const logs = await getLogs(req.user.username); 
-    const job = logs.find(l => l.jobId === jobId);
-    if (!job || !job.output) return res.status(404).json({ error: 'Job not found or not complete' });
+    // getLogs should return an array of log entries; adjust if your getLogs signature differs
+    const logs = await getLogs(req.user.username);
+    const job = (Array.isArray(logs) ? logs : []).find(l => l.jobId === jobId);
 
-    const presigned = await getPresignedUrl(job.output, 60 * 5); // 5 minutes
-    return res.json({ url: presigned, outputKey: job.output });
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    if (!job.output) {
+      // Worker hasn't produced output yet
+      return res.status(202).json({ status: 'pending' });
+    }
+
+    const url = await getPresignedUrl(job.output, 60 * 5); // 5 minutes
+    return res.json({ url, outputKey: job.output });
   } catch (err) {
     console.error('GET /job/:id error', err);
     return res.status(500).json({ error: err.message });
