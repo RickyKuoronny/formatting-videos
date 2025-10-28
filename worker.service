@@ -1,0 +1,21 @@
+[Unit]
+Description=Video Processing Worker Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/formatvideo
+ExecStart=/home/ubuntu/formatvideo/start-worker.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables (if not using Secrets Manager)
+# Environment="AWS_REGION=ap-southeast-2"
+# Environment="SQS_QUEUE_URL=https://sqs.ap-southeast-2.amazonaws.com/..."
+
+[Install]
+WantedBy=multi-user.target

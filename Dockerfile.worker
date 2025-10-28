@@ -1,0 +1,16 @@
+FROM node:22-alpine
+
+# Install ffmpeg for video processing
+RUN apk add --no-cache ffmpeg
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+RUN npm install --production
+
+# Copy application code
+COPY backend/ ./backend/
+
+# Run the worker
+CMD ["node", "backend/worker.js"]

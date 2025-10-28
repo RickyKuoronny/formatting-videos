@@ -153,6 +153,43 @@ Users can also retrieve processed videos via a REST API.
     - secrets.js
     - server.js
 
+### Auto scaling
+
+- **Scaling metric used:** SQS Queue Depth (custom metric)
+- **Why this metric is better than CPU:** Queue depth is a leading indicator that detects load spikes before they cause job timeouts. It scales proactively based on pending work rather than reactively based on CPU utilization. This prevents queue buildup and provides faster response to traffic changes.
+- **Scaling range:** 1 to 3 instances
+- **Target value:** 5 messages per instance (dynamically calculated)
+- **Instance type:** t2.micro with unlimited credit specification
+- **Video timestamp:** 
+- **Relevant files:**
+    - backend/worker.js
+    - Dockerfile.worker
+    - worker.service
+    - start-worker.sh
+    - AUTOSCALING_SETUP.md
+
+### Serverless functions
+
+- **Lambda function name:** video-worker-autoscaler
+- **Purpose:** Custom autoscaling - monitors SQS queue depth every minute and adjusts worker ASG capacity accordingly
+- **Why Lambda is appropriate:** Lightweight monitoring task that runs on schedule (every minute), event-driven, stateless, and cost-effective for periodic checks
+- **Trigger:** CloudWatch Events (EventBridge) - scheduled every 1 minute
+- **Video timestamp:**
+- **Relevant files:**
+    - lambda/customAutoscaler.js
+    - lambda/package.json
+
+### Custom scaling metric
+
+- **Metric used:** SQS Queue Depth (ApproximateNumberOfMessages + ApproximateNumberOfMessagesNotVisible)
+- **Why it's appropriate:** Queue depth directly represents pending work, providing immediate visibility into load. It prevents job timeouts and queue buildup by scaling before workers become overwhelmed.
+- **Improvement over CPU:** CPU utilization is a lagging indicator - by the time CPU is high, jobs are already queued. Queue depth is a leading indicator that scales proactively, resulting in faster response times and no job timeouts.
+- **Scalability:** Works equally well with 1 or 100+ instances - calculation is simple: desiredInstances = ceil(queueDepth / messagesPerInstance)
+- **Video timestamp:**
+- **Relevant files:**
+    - lambda/customAutoscaler.js
+    - AUTOSCALING_SETUP.md
+
 ### Infrastructure as code
 
 - **Technology used:**
