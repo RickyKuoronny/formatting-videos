@@ -13,22 +13,20 @@ const docClient = DynamoDBDocumentClient.from(ddbClient);
 const TABLE_NAME = "a2-n10666630";
 const qutUsername = "n10666630@qut.edu.au";
 
-// --- Cache flag ---
 let tableEnsured = false;
 
 async function ensureTable() {
-  if (tableEnsured) return; 
+  if (tableEnsured) return;
 
   try {
     const command = new CreateTableCommand({
       TableName: TABLE_NAME,
       AttributeDefinitions: [
-        { AttributeName: "qut-username", AttributeType: "S" },
-        { AttributeName: "filename", AttributeType: "S" },
+        { AttributeName: "jobId", AttributeType: "S" },       // 👈 main key
+        { AttributeName: "qut-username", AttributeType: "S" } // optional for filtering
       ],
       KeySchema: [
-        { AttributeName: "qut-username", KeyType: "HASH" },
-        { AttributeName: "filename", KeyType: "RANGE" },
+        { AttributeName: "jobId", KeyType: "HASH" }           // 👈 now keyed by jobId
       ],
       ProvisionedThroughput: { ReadCapacityUnits: 1, WriteCapacityUnits: 1 },
     });
@@ -54,32 +52,40 @@ async function ensureTable() {
   tableEnsured = true;
 }
 
-async function saveMetadata(filename, metadata) {
-  await ensureTable(); // make sure table is ready before inserting
+async function saveMetadata(jobId, metadata) {
+  await ensureTable();
 
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: {
+      jobId,
       "qut-username": qutUsername,
-      filename,
       ...metadata,
+      type: "metadata",
+      updatedAt: new Date().toISOString()
     },
   });
 
   return await docClient.send(command);
 }
 
-// --- Save conversion log ---
 async function saveLog(log) {
   await ensureTable();
+
+  const { jobId } = log;
+  if (!jobId) throw new Error("Missing jobId in saveLog");
+
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: {
+      jobId,
       "qut-username": qutUsername,
-      filename: `log-${Date.now()}`, // unique key
       ...log,
+      type: "log",
+      updatedAt: new Date().toISOString()
     },
   });
+
   return await docClient.send(command);
 }
 
@@ -89,7 +95,7 @@ async function getLogs() {
   const command = new ScanCommand({ TableName: TABLE_NAME });
   const result = await docClient.send(command);
 
-  // Convert DynamoDB items to plain JS objects
   return result.Items.map(item => unmarshall(item));
 }
+
 module.exports = { saveMetadata, saveLog, getLogs };
