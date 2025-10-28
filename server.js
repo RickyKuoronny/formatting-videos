@@ -638,33 +638,38 @@ app.get('/config', (req, res) => {
 app.get('/health', (req, res) => res.send('ok'));
 
 app.get('/job/:id', authenticateToken, async (req, res) => {
-  try {
-    const jobId = req.params.id;
-    console.log(`[GET /job/${jobId}] requested by user=${req.user?.username || 'unknown'}`);
+  const jobId = req.params.id;
+  console.log(`[GET /job/${jobId}] requested by user=${req.user?.username || 'unknown'}`);
 
-    // Fetch logs (adjust getLogs if it requires args)
-    const logs = await getLogs(); // expects array of log entries
-    console.log(`[GET /job/${jobId}] getLogs returned count=${Array.isArray(logs) ? logs.length : 0}`);
+  try {
+    // Try several ways to fetch logs so we don't miss the worker entry
+    let logs = [];
+    try { logs = await getLogs(); } catch(e){ console.warn('getLogs() failed', e); }
+    if ((!Array.isArray(logs) || logs.length === 0) && typeof getLogs === 'function') {
+      try { logs = await getLogs(req.user?.username); } catch(e){ console.warn('getLogs(user) failed', e); }
+    }
+    console.log(`[GET /job/${jobId}] logsCount=${Array.isArray(logs) ? logs.length : 0}`);
 
     const job = (Array.isArray(logs) ? logs : []).find(l => l.jobId === jobId);
-    console.log(`[GET /job/${jobId}] found job=`, job);
+    console.log(`[GET /job/${jobId}] found job:`, !!job);
 
-    if (!job) return res.status(404).json({ error: 'Job not found', jobId });
+    if (!job) {
+      return res.status(202).json({ status: 'pending', note: 'job not found in logs yet' });
+    }
 
     const outputKey = job.output || job.outputKey || job.outputFile || job.s3Key;
     console.log(`[GET /job/${jobId}] outputKey=`, outputKey);
 
-    if (!outputKey) return res.status(202).json({ status: 'pending' });
+    if (!outputKey) return res.status(202).json({ status: 'pending', job });
 
-    // If worker stored a full URL, return it directly
     if (/^https?:\/\//i.test(outputKey)) {
-      return res.json({ s3Url: outputKey, s3url: outputKey, outputKey });
+      return res.json({ s3Url: outputKey, s3url: outputKey, outputKey, metadata: job.metadata || null });
     }
 
-    const url = await getPresignedUrl(outputKey, 60 * 5); // 5 minutes
+    const url = await getPresignedUrl(outputKey, 60 * 5);
     return res.json({ s3Url: url, s3url: url, outputKey, metadata: job.metadata || null });
   } catch (err) {
-    console.error('GET /job/:id error', err);
+    console.error(`[GET /job/${jobId}] error`, err);
     return res.status(500).json({ error: err.message || 'Server error' });
   }
 });
