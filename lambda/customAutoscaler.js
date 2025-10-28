@@ -2,12 +2,12 @@ const { AutoScalingClient, SetDesiredCapacityCommand, DescribeAutoScalingGroupsC
 const { SQSClient, GetQueueAttributesCommand } = require('@aws-sdk/client-sqs');
 const { CloudWatchClient, PutMetricDataCommand } = require('@aws-sdk/client-cloudwatch');
 
-const autoScalingClient = new AutoScalingClient({ region: process.env.AWS_REGION || 'ap-southeast-2' });
-const sqsClient = new SQSClient({ region: process.env.AWS_REGION || 'ap-southeast-2' });
-const cloudWatchClient = new CloudWatchClient({ region: process.env.AWS_REGION || 'ap-southeast-2' });
+const autoScalingClient = new AutoScalingClient({ region: 'ap-southeast-2' });
+const sqsClient = new SQSClient({ region: 'ap-southeast-2' });
+const cloudWatchClient = new CloudWatchClient({ region: 'ap-southeast-2' });
 
-const AUTO_SCALING_GROUP_NAME = process.env.AUTO_SCALING_GROUP_NAME;
-const QUEUE_URL = process.env.SQS_QUEUE_URL;
+const AUTO_SCALING_GROUP_NAME = "n11036583-web-auto";
+const QUEUE_URL = "https://sqs.ap-southeast-2.amazonaws.com/901444280953/a3-group41-queue";
 
 // Configuration
 const MESSAGES_PER_INSTANCE = 5; // Target: 5 messages per worker instance
