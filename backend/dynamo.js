@@ -22,11 +22,12 @@ async function ensureTable() {
     const command = new CreateTableCommand({
       TableName: TABLE_NAME,
       AttributeDefinitions: [
-        { AttributeName: "jobId", AttributeType: "S" },       // 👈 main key
-        { AttributeName: "qut-username", AttributeType: "S" } // optional for filtering
+        { AttributeName: "qut-username", AttributeType: "S" }, // partition key
+        { AttributeName: "filename", AttributeType: "S" }      // sort key
       ],
       KeySchema: [
-        { AttributeName: "jobId", KeyType: "HASH" }           // 👈 now keyed by jobId
+        { AttributeName: "qut-username", KeyType: "HASH" }, // primary key (partition)
+        { AttributeName: "filename", KeyType: "RANGE" }     // secondary key (sort)
       ],
       ProvisionedThroughput: { ReadCapacityUnits: 1, WriteCapacityUnits: 1 },
     });
