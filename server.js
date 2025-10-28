@@ -642,7 +642,7 @@ app.get('/job/:id', authenticateToken, async (req, res) => {
   console.log(`[GET /job/${jobId}] requested by user=${req.user?.username || 'unknown'}`);
 
   try {
-    // Try several ways to fetch logs so we don't miss the worker entry
+    // try to fetch logs multiple ways
     let logs = [];
     try { logs = await getLogs(); } catch(e){ console.warn('getLogs() failed', e); }
     if ((!Array.isArray(logs) || logs.length === 0) && typeof getLogs === 'function') {
@@ -650,17 +650,38 @@ app.get('/job/:id', authenticateToken, async (req, res) => {
     }
     console.log(`[GET /job/${jobId}] logsCount=${Array.isArray(logs) ? logs.length : 0}`);
 
-    const job = (Array.isArray(logs) ? logs : []).find(l => l.jobId === jobId);
-    console.log(`[GET /job/${jobId}] found job:`, !!job);
-
-    if (!job) {
-      return res.status(202).json({ status: 'pending', note: 'job not found in logs yet' });
+    // tolerant find: support items that are objects, strings or primitive ids
+    let job = null;
+    if (Array.isArray(logs)) {
+      job = logs.find(item => {
+        if (!item) return false;
+        if (typeof item === 'string') return item === jobId;
+        if (typeof item === 'object') {
+          return item.jobId === jobId || item.id === jobId || item.output === jobId || item.outputKey === jobId;
+        }
+        return false;
+      });
     }
 
-    const outputKey = job.output || job.outputKey || job.outputFile || job.s3Key;
-    console.log(`[GET /job/${jobId}] outputKey=`, outputKey);
+    console.log(`[GET /job/${jobId}] found job raw:`, job);
 
-    if (!outputKey) return res.status(202).json({ status: 'pending', job });
+    if (!job) {
+      return res.status(202).json({ status: 'pending', note: 'job not found in logs yet', logsCount: Array.isArray(logs) ? logs.length : 0 });
+    }
+
+    // job may be a string (jobId) — in that case return pending so frontend keeps polling
+    if (typeof job === 'string') {
+      return res.status(202).json({ status: 'pending', note: 'log entry present but no metadata yet' });
+    }
+
+    // normalize outputKey from multiple possible fields
+    const outputKey = job.output || job.outputKey || job.outputFile || job.s3Key || job.s3url || job.s3Url || null;
+    console.log(`[GET /job/${jobId}] normalized outputKey=`, outputKey);
+
+    if (!outputKey) {
+      // include job in response for debugging (only in dev - remove in production)
+      return res.status(202).json({ status: 'pending', job });
+    }
 
     if (/^https?:\/\//i.test(outputKey)) {
       return res.json({ s3Url: outputKey, s3url: outputKey, outputKey, metadata: job.metadata || null });
@@ -668,6 +689,7 @@ app.get('/job/:id', authenticateToken, async (req, res) => {
 
     const url = await getPresignedUrl(outputKey, 60 * 5);
     return res.json({ s3Url: url, s3url: url, outputKey, metadata: job.metadata || null });
+
   } catch (err) {
     console.error(`[GET /job/${jobId}] error`, err);
     return res.status(500).json({ error: err.message || 'Server error' });

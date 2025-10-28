@@ -99,10 +99,14 @@ async function processMessage(msg) {
 
   // Persist final job log with a consistent "output" field so server can return presigned URL
   try {
+    // save multiple keys to be tolerant of differing read code
     await saveLog({
       jobId,
       input: inputKey,
-      output: outputKey,      // <-- important: server/frontend expect this field
+      output: outputKey,        // canonical
+      outputKey,                // mirror
+      outputFile: outputKey,    // older naming
+      s3Key: outputKey,         // alternate name
       resolution,
       startedAt,
       completedAt,
