@@ -15,6 +15,7 @@ const { uploadFile, getPresignedUrl } = require('./backend/s3');
 const { saveMetadata, saveLog, getLogs } = require('./backend/dynamo');
 const { loadSecrets } = require('./backend/secrets');
 const { loadAppConfig } = require('./backend/paramStore');
+const { sendMessage } = require('./backend/sqs');
 
 loadAppConfig().then(() => {
   console.log("Parameter Store config loaded");
@@ -451,111 +452,48 @@ function buildScaleArg(res) {
 app.post('/convert', authenticateToken, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  const resolution = (req.body.resolution || '').trim();
-  const scaleArg = buildScaleArg(resolution);
-  const outName = path.basename(req.file.originalname, path.extname(req.file.originalname)) + '-converted.mp4';
-
+  const { resolution } = req.body;
   const startedAt = new Date().toISOString();
-  console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes)`);
+  const tempInputFile = `uploads/${crypto.randomUUID()}-${req.file.originalname}`;
 
-  // FFmpeg args for stateless streaming
-  const args = [
-    '-i', 'pipe:0',
-    '-hide_banner',
-    '-loglevel', 'error',
-    ...(scaleArg ? ['-vf', scaleArg] : []),
-    '-c:v', 'libx264',
-    '-preset', 'veryfast',
-    '-crf', '23',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-movflags', 'frag_keyframe+empty_moov', // <— key for stateless MP4
-    '-f', 'mp4',
-    'pipe:1'
-  ];
+  console.log(`[${startedAt}] File uploaded: ${req.file.originalname} (${req.file.size} bytes), preparing for queue.`);
 
-  console.log('FFmpeg args:', args.join(' '));
+  try {
+    // 1. Upload original file to a temporary location in S3
+    await uploadFile(tempInputFile, req.file.buffer, req.file.mimetype);
+    console.log(`Successfully uploaded original file to s3://${tempInputFile}`);
 
-  const ff = spawn('ffmpeg', args);
-  let ffErr = '';
-  ff.stderr.on('data', d => ffErr += d.toString());
-
-  // Handle stdin errors (ignore EPIPE)
-  ff.stdin.on('error', err => { if (err.code !== 'EPIPE') console.error('FFmpeg stdin error:', err); });
-
-  // Pipe uploaded buffer to FFmpeg stdin
-  const bufferStream = Readable.from(req.file.buffer);
-  pipeline(bufferStream, ff.stdin, err => {
-    if (err && err.code !== 'EPIPE') console.error('Pipeline error (stdin):', err);
-  });
-
-  // Pipe FFmpeg output to S3 via PassThrough
-  const passThrough = new PassThrough();
-  const uploadPromise = uploadFile(outName, passThrough, 'video/mp4')
-    .catch(err => console.error('S3 upload failed:', err));
-  ff.stdout.pipe(passThrough);
-
-  // Handle FFmpeg close
-  ff.on('close', async code => {
-    const completedAt = new Date().toISOString();
-    const logEntry = {
-      input: req.file.originalname,
-      output: outName,
-      resolution,
-      startedAt,
-      completedAt,
-      user: req.user.username
-    };
-
-    await saveLog(logEntry);
-    
-    if (code !== 0) {
-      console.error(`[${completedAt}] FFmpeg failed for ${outName}:`, ffErr);
-      return res.status(500).json({ error: 'FFmpeg failed', details: ffErr });
+    // 2. Get queue URL from config
+    const config = await loadAppConfig();
+    if (!config.sqsQueueUrl) {
+      console.error('SQS_QUEUE_URL is not configured in Parameter Store.');
+      return res.status(500).json({ error: 'Processing service is not configured.' });
     }
 
-    // Wait for S3 upload to finish
-    await uploadPromise;
+    // 3. Send message to SQS
+    const messageBody = {
+      inputFile: tempInputFile,
+      resolution: (resolution || '').trim(),
+      user: req.user.username,
+      originalname: req.file.originalname,
+      startedAt
+    };
 
-    const presignedUrl = await getPresignedUrl(outName);
+    await sendMessage(config.sqsQueueUrl, messageBody);
 
-    // --- Generate metadata using ffprobe directly on S3 ---
-    const ffprobeArgs = [
-      '-v', 'quiet',
-      '-print_format', 'json',
-      '-show_format',
-      '-show_streams',
-      presignedUrl
-    ];
+    console.log(`Message sent to SQS for ${req.file.originalname}`);
 
-    execFile('ffprobe', ffprobeArgs, (err, stdout) => {
-      if (err) {
-        console.error('Failed to generate metadata:', err);
-        return res.json({ ok: true, s3Url: presignedUrl, outputFile: outName });
-      }
-
-      const metaRaw = JSON.parse(stdout);
-      const metadata = {
-        filename: outName,
-        codec: metaRaw.streams[0]?.codec_name || null,
-        bitrate: metaRaw.format?.bit_rate || null
-      };
-
-      saveMetadata(outName, metadata).catch(console.error);
-
-      res.json({
-        ok: true,
-        s3Url: presignedUrl,
-        outputFile: outName,
-        metadata
-      });
+    // 4. Respond to client immediately
+    res.status(202).json({
+      success: true,
+      message: 'Your video has been queued for processing. You will be notified upon completion.',
+      file: req.file.originalname
     });
-  });
 
-  ff.on('error', err => {
-    console.error('FFmpeg process error:', err);
-    res.status(500).json({ error: 'FFmpeg process failed', details: err.message });
-  });
+  } catch (error) {
+    console.error('Failed to queue video for processing:', error);
+    res.status(500).json({ error: 'Failed to queue video for processing.', details: error.message });
+  }
 });
 
 // Extension API cloudinary
