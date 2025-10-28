@@ -777,17 +777,25 @@ async function setDownloadLink(jobId) {
 
        if (resp.status === 200) {
          const json = await resp.json();
+         console.log('job result:', json);
+         // tolerate different response shapes
+         const url = json.url || json.s3Url || (json.outputKey ? `/outputs/${encodeURIComponent(json.outputKey)}` : null) || (json.output ? `/outputs/${encodeURIComponent(json.output)}` : null);
+         if (!url) {
+           statusEl.innerHTML = `<p class="error-text">Converted but download URL missing. Server returned: ${JSON.stringify(json)}</p>`;
+           return;
+         }
          // show final link and set Cloud button filename if provided
          statusEl.innerHTML = `
            <p class="success-text">
-             Converted! <a href="${json.url}" target="_blank" rel="noopener">Download here</a>
+             Converted! <a href="${url}" target="_blank" rel="noopener">Download here</a>
            </p>
          `;
-         if (json.outputKey) {
-           cloudBtn.style.display = 'inline-flex';
-           cloudBtn.disabled = false;
-           cloudBtn.textContent = 'Upload to Cloud';
-           cloudBtn.dataset.filename = json.outputKey;
+         const outputKey = json.outputKey || json.output || json.outputFile;
+        if (outputKey) {
+          cloudBtn.style.display = 'inline-flex';
+          cloudBtn.disabled = false;
+          cloudBtn.textContent = 'Upload to Cloud';
+          cloudBtn.dataset.filename = outputKey;
          }
          return;
        }
@@ -812,7 +820,6 @@ async function setDownloadLink(jobId) {
    statusEl.innerHTML = `<p class="error-text">Timed out waiting for conversion. Please try again later.</p>`;
  }
   </script>
-<!-- Ensure you have a placeholder link in HTML -->
-<a id="downloadLink" style="display:none" target="_blank" rel="noopener noreferrer">Download Here</a>
+<!-- (removed duplicate downloadLink anchor) -->
 </body>
 </html>
