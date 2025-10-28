@@ -32,7 +32,7 @@ async function processMessage(msg) {
   const outputKey = `${jobId}/output-${Date.now()}.mp4`;
   const presignedInput = await getPresignedUrl(inputKey, 60); // short-lived GET url
 
-  // build ffmpeg args (similar to server logic)
+  // Build ffmpeg args
   const scaleArg = (() => {
     if (!resolution) return null;
     const m = resolution.match(/^(\d+|\?)x(\d+|\?)$/);
@@ -54,6 +54,7 @@ async function processMessage(msg) {
   ];
 
   console.log(`Worker: processing job ${jobId} input=${inputKey} -> ${outputKey}`);
+
   const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
   ff.stderr.on('data', d => stderr += d.toString());
@@ -65,67 +66,81 @@ async function processMessage(msg) {
     if (err) console.error('Worker pipeline error:', err);
   });
 
-  const code = await new Promise((resolve) => ff.on('close', code => resolve(code)));
-
+  const code = await new Promise(resolve => ff.on('close', resolve));
   const completedAt = new Date().toISOString();
+
   if (code !== 0) {
     console.error(`ffmpeg failed for job ${jobId}:`, stderr);
-    await saveLog({ jobId, input: inputKey, output: outputKey, resolution, startedAt, completedAt, status: 'failed', error: stderr, user });
-    // do not delete message so it can be retried (or you can implement DLQ)
-    return;
+    await saveLog({
+      jobId,
+      input: inputKey,
+      output: outputKey,
+      resolution,
+      startedAt,
+      completedAt,
+      status: 'failed',
+      error: stderr,
+      user
+    });
+    return; // do not delete message so it can be retried
   }
 
   await uploadPromise;
 
-  // Save metadata using ffprobe (use presigned URL for output)
+  // Get metadata and save final log
   try {
     const presignedOutput = await getPresignedUrl(outputKey, 60);
     const ffprobeArgs = ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', presignedOutput];
-    execFile('ffprobe', ffprobeArgs, (err, stdout) => {
-      if (!err) {
-        const metaRaw = JSON.parse(stdout);
-        const metadata = {
-          filename: outputKey,
-          codec: metaRaw.streams[0]?.codec_name || null,
-          bitrate: metaRaw.format?.bit_rate || null,
-          duration: metaRaw.format?.duration || null
-        };
-        saveMetadata(outputKey, metadata).catch(console.error);
-      }
-    });
-  } catch (err) {
-    console.error('ffprobe failed:', err);
-  }
 
-  // Persist final job log with a consistent "output" field so server can return presigned URL
-  try {
-    // save multiple keys to be tolerant of differing read code
+    const metadata = await new Promise(resolve => {
+      execFile('ffprobe', ffprobeArgs, (err, stdout) => {
+        if (err) return resolve({});
+        try {
+          const metaRaw = JSON.parse(stdout);
+          resolve({
+            codec: metaRaw.streams[0]?.codec_name || null,
+            bitrate: metaRaw.format?.bit_rate || null,
+            duration: metaRaw.format?.duration || null,
+            width: metaRaw.streams[0]?.width || null,
+            height: metaRaw.streams[0]?.height || null
+          });
+        } catch {
+          resolve({});
+        }
+      });
+    });
+
+    // Save final job log including metadata
     await saveLog({
       jobId,
       input: inputKey,
-      output: outputKey,        // canonical
-      outputKey,                // mirror
-      outputFile: outputKey,    // older naming
-      s3Key: outputKey,         // alternate name
+      output: outputKey,
+      outputKey,
+      outputFile: outputKey,
+      s3Key: outputKey,
       resolution,
       startedAt,
-      completedAt,
+      completedAt: new Date().toISOString(),
       status: 'done',
-      user
+      user,
+      metadata
     });
-    console.log(`Worker: saved log for job ${jobId} output=${outputKey}`);
+
+    console.log(`Worker: saved log for job ${jobId} with metadata`);
+
+    // Delete SQS message after everything is done
+    await sqsClient.send(new DeleteMessageCommand({
+      QueueUrl: queueUrl,
+      ReceiptHandle: msg.ReceiptHandle
+    }));
+
+    console.log(`Worker: job ${jobId} complete`);
+
   } catch (err) {
-    console.error('Worker: failed to save final log', err);
+    console.error('ffprobe or saveLog failed:', err);
   }
-
-  // delete message from queue
-  await sqsClient.send(new DeleteMessageCommand({
-    QueueUrl: queueUrl,
-    ReceiptHandle: msg.ReceiptHandle
-  }));
-
-  console.log(`Worker: job ${jobId} complete`);
 }
+
 
 async function pollLoop() {
   while (true) {
