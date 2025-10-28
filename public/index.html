@@ -720,16 +720,29 @@
       }
     });
 
-  showAuthCard('loginCard');
-  restoreAuth();
-    applyAuthState();
-    handleOAuthCallback();
-
-    if (state.tokens && state.user && state.user.role === 'admin') {
-      fetchLogs(true);
-      if (!cpuChart) initCpuChart();
-      if (!cpuInterval) cpuInterval = setInterval(updateCpuChart, 5000);
+async function setDownloadLink(jobId) {
+  try {
+    const resp = await fetch(`/job/${encodeURIComponent(jobId)}`, { credentials: 'same-origin' });
+    if (!resp.ok) {
+      console.warn('job not ready', await resp.text());
+      return;
     }
+    const json = await resp.json();
+    const a = document.getElementById('downloadLink');
+    if (a) {
+      a.href = json.url;
+      a.textContent = 'Download Here';
+      a.style.display = 'inline';
+    }
+  } catch (err) {
+    console.error('Failed to fetch job URL', err);
+  }
+}
+
+// Example: after you receive jobId from the /convert response:
+// setDownloadLink(returnedJobId);
   </script>
+<!-- Ensure you have a placeholder link in HTML -->
+<a id="downloadLink" style="display:none" target="_blank" rel="noopener noreferrer">Download Here</a>
 </body>
 </html>

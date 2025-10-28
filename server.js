@@ -636,4 +636,20 @@ app.get('/config', (req, res) => {
 // health
 app.get('/health', (req, res) => res.send('ok'));
 
+app.get('/job/:id', authenticateToken, async (req, res) => {
+  try {
+    const jobId = req.params.id;
+    // getLogs should return an array of log entries; adjust call if signature differs
+    const logs = await getLogs(req.user.username); 
+    const job = logs.find(l => l.jobId === jobId);
+    if (!job || !job.output) return res.status(404).json({ error: 'Job not found or not complete' });
+
+    const presigned = await getPresignedUrl(job.output, 60 * 5); // 5 minutes
+    return res.json({ url: presigned, outputKey: job.output });
+  } catch (err) {
+    console.error('GET /job/:id error', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, '0.0.0.0', () => console.log(`Server listening on ${PORT}`));
