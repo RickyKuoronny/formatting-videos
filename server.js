@@ -597,9 +597,10 @@ app.post('/convert', authenticateToken, upload.single('video'), async (req, res)
     }
 
     // Respond to client and return immediately
-    return res.status(200).json({ ok: true, jobId, message: 'Processing queued' });
+    // Indicate accepted/queued so frontend will poll /job/:id
+    return res.status(202).json({ ok: true, jobId, message: 'Processing queued' });
   } catch (err) {
-    console.error('Convert handler error:', err && (err.stack || err.message || err));
+    console.error('Queueing failed (full):', err && (err.stack || err.message || err));
     return res.status(500).json({ error: 'Failed to queue job', details: err.message });
   }
 });
